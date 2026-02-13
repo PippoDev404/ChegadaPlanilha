@@ -401,11 +401,43 @@ function MiniAppTabela() {
       </div>
 
       <style>{`
-        @media (max-width: 980px){
-          .grid { grid-template-columns: 1fr !important; }
-          .sidebar { position: relative !important; top: auto !important; }
-          table { min-width: 1000px; }
-        }
+        /* TABLET */
+  @media (max-width: 1024px){
+    .grid {
+      grid-template-columns: 1fr 320px !important;
+    }
+
+    table {
+      min-width: 850px !important;
+    }
+  }
+
+  /* TABLET MENOR */
+  @media (max-width: 820px){
+    .grid {
+      grid-template-columns: 1fr 280px !important;
+    }
+
+    table {
+      min-width: 760px !important;
+    }
+  }
+
+  /* CELULAR */
+  @media (max-width: 680px){
+    .grid {
+      grid-template-columns: 1fr !important;
+    }
+
+    .sidebar {
+      position: relative !important;
+      top: auto !important;
+    }
+
+    table {
+      min-width: 720px !important;
+    }
+  }
       `}</style>
     </div>
   );
