@@ -560,44 +560,34 @@ function MiniAppTabela() {
 
   // ✅ 1) Fetch pelo telegram_id e chave_parte via n8n
   useEffect(() => {
-    const csvId = getCsvIdFromUrl();
-    if (!csvId) return;
+  const csvId = getCsvIdFromUrl();
+  if (!csvId) return;
 
-    (async () => {
-      try {
-        setLoading(true);
-        setError('');
+  (async () => {
+    try {
+      setLoading(true);
+      setError('');
 
-        // (opcional e recomendado) manda também o telegramId atual pra validar permissão
-        const telegramId = getTelegramId();
+      const qs = new URLSearchParams({ id: csvId });
+      const url = `${API_BASE.replace(/\/$/, '')}/parte/by-id?${qs.toString()}`;
 
-        const qs = new URLSearchParams({
-          id: csvId,
-          telegram_id: telegramId,
-        });
+      const resp = await fetch(url);
 
-        const url = `${API_BASE.replace(/\/$/, '')}/parte/by-id?${qs.toString()}`;
-        const resp = await fetch(url);
-
-        if (!resp.ok) {
-          const t = await resp.text().catch(() => '');
-          throw new Error(`HTTP ${resp.status} ${t}`);
-        }
-
-        const data = await resp.json();
-
-        // aqui você pode aceitar 1 objeto ou array
-        const arr = Array.isArray(data) ? data : [data];
-        setPayload(arr);
-      } catch (e: any) {
-        console.error(e);
-        setError(String(e?.message || e || 'Erro ao buscar payload'));
-        setPayload(null);
-      } finally {
-        setLoading(false);
+      if (!resp.ok) {
+        const t = await resp.text().catch(() => '');
+        throw new Error(`HTTP ${resp.status} ${t}`);
       }
-    })();
-  }, []);
+
+      const data = await resp.json();
+      setPayload(Array.isArray(data) ? data : [data]);
+    } catch (e: any) {
+      setError(String(e?.message || e || 'Erro ao buscar payload'));
+      setPayload(null);
+    } finally {
+      setLoading(false);
+    }
+  })();
+}, []);
 
   // ✅ 2) opcional: payload via evento
   useEffect(() => {
