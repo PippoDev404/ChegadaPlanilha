@@ -43,7 +43,7 @@ const PAGE_SIZE = 20;
  * Exemplo:
  * https://n8n.seudominio.com/webhook/api
  */
-const API_BASE = 'https://n8n.srv962474.hstgr.cloud/webhook/api';
+const API_BASE = 'https://n8n.srv962474.hstgr.cloud/webhook';
 
 // =========================
 // CSS / THEME
@@ -306,10 +306,10 @@ function csvToAppRows(csv: string, parteFallback = 'P01'): { parte: string; rows
 
     const safeStatus: Status =
       statusCsv === 'ATENDEU' ||
-      statusCsv === 'OUTRA_CIDADE' ||
-      statusCsv === 'NAO_ATENDEU' ||
-      statusCsv === 'CAIXA_POSTAL' ||
-      statusCsv === 'SEM_RESPOSTA'
+        statusCsv === 'OUTRA_CIDADE' ||
+        statusCsv === 'NAO_ATENDEU' ||
+        statusCsv === 'CAIXA_POSTAL' ||
+        statusCsv === 'SEM_RESPOSTA'
         ? statusCsv
         : 'PENDENTE';
 
@@ -375,8 +375,8 @@ function ActionButton({
     kind === 'danger'
       ? { border: '1px solid rgba(239,68,68,.45)', background: 'rgba(239,68,68,.14)' }
       : kind === 'warning'
-      ? { border: '1px solid rgba(245,158,11,.45)', background: 'rgba(245,158,11,.14)' }
-      : { border: '1px solid rgba(34,197,94,.45)', background: 'rgba(34,197,94,.14)' };
+        ? { border: '1px solid rgba(245,158,11,.45)', background: 'rgba(245,158,11,.14)' }
+        : { border: '1px solid rgba(34,197,94,.45)', background: 'rgba(34,197,94,.14)' };
 
   return (
     <button
@@ -573,10 +573,9 @@ function MiniAppTabela() {
       try {
         setLoading(true);
         setError('');
+        setPayload(null);
 
-        const qs = new URLSearchParams({ id: csvId });
-        const url = `${API_BASE.replace(/\/$/, '')}/parte/by-id?${qs.toString()}`;
-
+        const url = `${API_BASE.replace(/\/$/, '')}/entregas?id=${encodeURIComponent(csvId)}`;
         const resp = await fetch(url, { cache: 'no-store' });
 
         if (!resp.ok) {
