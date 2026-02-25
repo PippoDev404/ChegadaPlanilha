@@ -3,7 +3,6 @@ import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 
 /**
  * ✅ Ajuste aqui os status que você quer usar no seu projeto.
- * Eu mantive os seus e adicionei CAIXA_POSTAL / SEM_RESPOSTA como exemplo.
  */
 type Status = 'PENDENTE' | 'NAO_ATENDEU' | 'OUTRA_CIDADE' | 'ATENDEU' | 'CAIXA_POSTAL' | 'SEM_RESPOSTA';
 
@@ -40,7 +39,7 @@ type StatusFilter = 'TODOS' | 'PENDENTES' | 'CONCLUIDOS' | Status;
 const PAGE_SIZE = 20;
 
 /**
- * ✅ Coloque a URL base do seu webhook do n8n (sem path duplicado)
+ * ✅ BASE LIMPA (SEM /parte/by-id e SEM ?id=...)
  * Exemplo:
  * https://n8n.seudominio.com/webhook/api
  */
@@ -98,6 +97,11 @@ function norm(s: string) {
     .trim();
 }
 
+/**
+ * ✅ Aceita:
+ * ?csvId=...
+ * ?id=...
+ */
 function getCsvIdFromUrl(): string {
   const sp = new URLSearchParams(window.location.search || '');
   const direct = sp.get('csvId') || sp.get('id') || '';
@@ -109,13 +113,27 @@ function getCsvIdFromUrl(): string {
   return hp.get('csvId') || hp.get('id') || '';
 }
 
-function statusText(s: Status) {
-  if (s === 'ATENDEU') return 'CONCLUÍDO • ATENDEU';
-  if (s === 'OUTRA_CIDADE') return 'CONCLUÍDO • OUTRA CIDADE';
-  if (s === 'NAO_ATENDEU') return 'CONCLUÍDO • NÃO ATENDEU';
-  if (s === 'CAIXA_POSTAL') return 'CONCLUÍDO • CAIXA POSTAL';
-  if (s === 'SEM_RESPOSTA') return 'CONCLUÍDO • SEM RESPOSTA';
-  return 'PENDENTE';
+/**
+ * ✅ Aceita:
+ * ?entregaId=... (preferencial)
+ * ?telegram_id=...
+ * ?tid=...
+ * ?id=...
+ */
+function getEntregaIdFromUrl(): string {
+  const sp = new URLSearchParams(window.location.search || '');
+  const direct =
+    sp.get('entregaId') ||
+    sp.get('telegram_id') ||
+    sp.get('tid') ||
+    sp.get('id') ||
+    '';
+  if (direct) return direct;
+
+  const h = window.location.hash || '';
+  const q = h.includes('?') ? h.split('?')[1] : '';
+  const hp = new URLSearchParams(q);
+  return hp.get('entregaId') || hp.get('telegram_id') || hp.get('tid') || hp.get('id') || '';
 }
 
 function getTelegramId(): string {
@@ -125,6 +143,26 @@ function getTelegramId(): string {
 
   // fallback para teste fora do Telegram
   return getEntregaIdFromUrl();
+}
+
+function getParteFromUrl(): string {
+  const sp = new URLSearchParams(window.location.search || '');
+  const direct = sp.get('parte') || sp.get('chave_parte') || '';
+  if (direct) return direct;
+
+  const h = window.location.hash || '';
+  const q = h.includes('?') ? h.split('?')[1] : '';
+  const hp = new URLSearchParams(q);
+  return hp.get('parte') || hp.get('chave_parte') || '';
+}
+
+function statusText(s: Status) {
+  if (s === 'ATENDEU') return 'CONCLUÍDO • ATENDEU';
+  if (s === 'OUTRA_CIDADE') return 'CONCLUÍDO • OUTRA CIDADE';
+  if (s === 'NAO_ATENDEU') return 'CONCLUÍDO • NÃO ATENDEU';
+  if (s === 'CAIXA_POSTAL') return 'CONCLUÍDO • CAIXA POSTAL';
+  if (s === 'SEM_RESPOSTA') return 'CONCLUÍDO • SEM RESPOSTA';
+  return 'PENDENTE';
 }
 
 function statusVars(s: Status) {
@@ -155,40 +193,6 @@ function rowBg(status: Status) {
     default:
       return 'transparent';
   }
-}
-
-/**
- * ✅ Aceita:
- * ?entregaId=... (preferencial)
- * ?telegram_id=...
- * ?tid=...
- * ?id=...
- */
-function getEntregaIdFromUrl(): string {
-  const sp = new URLSearchParams(window.location.search || '');
-  const direct =
-    sp.get('entregaId') ||
-    sp.get('telegram_id') ||
-    sp.get('tid') ||
-    sp.get('id') ||
-    '';
-  if (direct) return direct;
-
-  const h = window.location.hash || '';
-  const q = h.includes('?') ? h.split('?')[1] : '';
-  const hp = new URLSearchParams(q);
-  return hp.get('entregaId') || hp.get('telegram_id') || hp.get('tid') || hp.get('id') || '';
-}
-
-function getParteFromUrl(): string {
-  const sp = new URLSearchParams(window.location.search || '');
-  const direct = sp.get('parte') || sp.get('chave_parte') || '';
-  if (direct) return direct;
-
-  const h = window.location.hash || '';
-  const q = h.includes('?') ? h.split('?')[1] : '';
-  const hp = new URLSearchParams(q);
-  return hp.get('parte') || hp.get('chave_parte') || '';
 }
 
 /**
@@ -296,17 +300,16 @@ function csvToAppRows(csv: string, parteFallback = 'P01'): { parte: string; rows
     const DIA_PESQ = pickKey(r, ['DIA PESQ.', 'DIA PESQ', 'DIA_PESQ', 'DATA', 'DIA']) || '';
     const N_PESQ = pickKey(r, ['Nº PESQ.', 'N_PESQ', 'N PESQ', 'N PESQ.']) || parte;
 
-    // ✅ Lê STATUS/OBSERVACAO se vier no CSV (n8n já injeta)
+    // ✅ Lê STATUS/OBSERVACAO se vier no CSV
     const statusCsv = (pickKey(r, ['STATUS', 'Status']) || 'PENDENTE').trim().toUpperCase() as Status;
     const obsCsv = pickKey(r, ['OBSERVACAO', 'OBSERVAÇÃO', 'Observacao', 'Observação']) || '';
 
-    // se vier algo desconhecido, cai pra PENDENTE
     const safeStatus: Status =
       statusCsv === 'ATENDEU' ||
-        statusCsv === 'OUTRA_CIDADE' ||
-        statusCsv === 'NAO_ATENDEU' ||
-        statusCsv === 'CAIXA_POSTAL' ||
-        statusCsv === 'SEM_RESPOSTA'
+      statusCsv === 'OUTRA_CIDADE' ||
+      statusCsv === 'NAO_ATENDEU' ||
+      statusCsv === 'CAIXA_POSTAL' ||
+      statusCsv === 'SEM_RESPOSTA'
         ? statusCsv
         : 'PENDENTE';
 
@@ -372,8 +375,8 @@ function ActionButton({
     kind === 'danger'
       ? { border: '1px solid rgba(239,68,68,.45)', background: 'rgba(239,68,68,.14)' }
       : kind === 'warning'
-        ? { border: '1px solid rgba(245,158,11,.45)', background: 'rgba(245,158,11,.14)' }
-        : { border: '1px solid rgba(34,197,94,.45)', background: 'rgba(34,197,94,.14)' };
+      ? { border: '1px solid rgba(245,158,11,.45)', background: 'rgba(245,158,11,.14)' }
+      : { border: '1px solid rgba(34,197,94,.45)', background: 'rgba(34,197,94,.14)' };
 
   return (
     <button
@@ -540,6 +543,7 @@ function MiniAppTabela() {
   const [saveError, setSaveError] = useState('');
   const [lastSavedAt, setLastSavedAt] = useState('');
   const [saveTick, setSaveTick] = useState(0);
+
   const [payload, setPayload] = useState<PartePayload[] | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
@@ -558,36 +562,38 @@ function MiniAppTabela() {
   const [dirty, setDirty] = useState<Record<string, { STATUS: Status; OBSERVACAO: string }>>({});
   const dirtyCount = useMemo(() => Object.keys(dirty).length, [dirty]);
 
-  // ✅ 1) Fetch pelo telegram_id e chave_parte via n8n
+  // =========================
+  // 1) FETCH payload por csvId
+  // =========================
   useEffect(() => {
-  const csvId = getCsvIdFromUrl();
-  if (!csvId) return;
+    const csvId = getCsvIdFromUrl();
+    if (!csvId) return;
 
-  (async () => {
-    try {
-      setLoading(true);
-      setError('');
+    (async () => {
+      try {
+        setLoading(true);
+        setError('');
 
-      const qs = new URLSearchParams({ id: csvId });
-      const url = `${API_BASE.replace(/\/$/, '')}/parte/by-id?${qs.toString()}`;
+        const qs = new URLSearchParams({ id: csvId });
+        const url = `${API_BASE.replace(/\/$/, '')}/parte/by-id?${qs.toString()}`;
 
-      const resp = await fetch(url);
+        const resp = await fetch(url, { cache: 'no-store' });
 
-      if (!resp.ok) {
-        const t = await resp.text().catch(() => '');
-        throw new Error(`HTTP ${resp.status} ${t}`);
+        if (!resp.ok) {
+          const t = await resp.text().catch(() => '');
+          throw new Error(`HTTP ${resp.status} • ${t || 'Sem body'}`);
+        }
+
+        const data = await resp.json();
+        setPayload(Array.isArray(data) ? data : [data]);
+      } catch (e: any) {
+        setError(String(e?.message || e || 'Erro ao buscar payload'));
+        setPayload(null);
+      } finally {
+        setLoading(false);
       }
-
-      const data = await resp.json();
-      setPayload(Array.isArray(data) ? data : [data]);
-    } catch (e: any) {
-      setError(String(e?.message || e || 'Erro ao buscar payload'));
-      setPayload(null);
-    } finally {
-      setLoading(false);
-    }
-  })();
-}, []);
+    })();
+  }, []);
 
   // ✅ 2) opcional: payload via evento
   useEffect(() => {
@@ -650,7 +656,9 @@ function MiniAppTabela() {
       if (!qq) return true;
 
       const hay = norm(
-        [r.LINE, r.IDP, r.ESTADO, r.CIDADE, r.REGIAO_CIDADE, r.TF1, r.TF2, r.TF3, r.TF4, r.N_PESQ, r.DIA_PESQ, r.STATUS].join(' ')
+        [r.LINE, r.IDP, r.ESTADO, r.CIDADE, r.REGIAO_CIDADE, r.TF1, r.TF2, r.TF3, r.TF4, r.N_PESQ, r.DIA_PESQ, r.STATUS].join(
+          ' '
+        )
       );
       return hay.includes(qq);
     });
@@ -681,16 +689,21 @@ function MiniAppTabela() {
       ...prev,
       [String(row.LINE)]: {
         STATUS: newStatus,
-        OBSERVACAO: (prev[String(row.LINE)]?.OBSERVACAO ?? row.OBSERVACAO ?? ''),
+        OBSERVACAO: prev[String(row.LINE)]?.OBSERVACAO ?? row.OBSERVACAO ?? '',
       },
     }));
 
     setSaveTick((x) => x + 1);
   }
 
+  // =========================
+  // AUTOSAVE (debounce 800ms)
+  // =========================
   useEffect(() => {
     const entregaId = getTelegramId();
-    const parteUrl = getParteFromUrl();
+
+    // ✅ parte: prioriza URL; se não tiver, usa a do payload/app
+    const parteUrl = getParteFromUrl() || parte || (payload?.[0]?.chave_parte ? String(payload[0].chave_parte) : '');
 
     if (!entregaId || !parteUrl) return;
 
@@ -709,7 +722,9 @@ function MiniAppTabela() {
         setSaving(true);
         setSaveError('');
 
-        const resp = await fetch(`${API_BASE}/parte/salvar`, {
+        const url = `${API_BASE.replace(/\/$/, '')}/parte/salvar`;
+
+        const resp = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -721,7 +736,7 @@ function MiniAppTabela() {
 
         if (!resp.ok) {
           const txt = await resp.text().catch(() => '');
-          throw new Error(txt || `HTTP ${resp.status}`);
+          throw new Error(`HTTP ${resp.status} • ${txt || 'Sem body'}`);
         }
 
         setDirty({});
@@ -735,7 +750,7 @@ function MiniAppTabela() {
     }, 800);
 
     return () => clearTimeout(t);
-  }, [saveTick, dirty]);
+  }, [saveTick, dirty, parte, payload]);
 
   function callPhoneForRow(row: Row, which: 'TF1' | 'TF2' | 'TF3' | 'TF4') {
     const tel = safeTel(row[which]);
@@ -754,6 +769,15 @@ function MiniAppTabela() {
 
   const hasData = allRows.length > 0;
 
+  // dicas de URL (pra você testar)
+  const hintLink = useMemo(() => {
+    const base = `${window.location.origin}${window.location.pathname}#/?`;
+    // exemplo genérico:
+    // csvId -> carrega a parte
+    // entregaId/parte -> salva
+    return `${base}csvId=SEU_CSVID&entregaId=SEU_TELEGRAM_ID&parte=P03`;
+  }, []);
+
   return (
     <div style={{ padding: 12 }}>
       <style>{globalCss}</style>
@@ -761,19 +785,37 @@ function MiniAppTabela() {
       {!hasData ? (
         <div style={styles.card}>
           <div style={{ padding: 14, color: 'var(--text)' }}>
-            <div style={{ fontWeight: 900, fontSize: 13 }}>
-              {loading ? 'Carregando…' : 'Aguardando dados…'}
-            </div>
+            <div style={{ fontWeight: 900, fontSize: 13 }}>{loading ? 'Carregando…' : 'Aguardando dados…'}</div>
+
             <div style={{ color: 'var(--text-muted)', marginTop: 6, fontSize: 11 }}>
               {loading
                 ? 'Buscando o CSV no servidor (n8n → Supabase).'
-                : 'Abra o link com ?entregaId=SEU_TELEGRAM_ID&parte=P03 para carregar a tabela.'}
+                : 'Abra com csvId para carregar. Exemplo:'}
             </div>
+
+            {!loading && (
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: 10,
+                  border: '1px solid var(--border)',
+                  borderRadius: 10,
+                  fontSize: 11,
+                  color: 'var(--text-muted)',
+                  wordBreak: 'break-all',
+                }}
+              >
+                {hintLink}
+              </div>
+            )}
 
             {error ? (
               <div style={{ marginTop: 10, padding: 10, border: '1px solid var(--danger)', borderRadius: 10 }}>
                 <div style={{ fontWeight: 900 }}>⚠️ Erro</div>
                 <div style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 4 }}>{error}</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 6 }}>
+                  Se aparecer “CORS” no console, seu n8n precisa liberar Access-Control-Allow-Origin.
+                </div>
               </div>
             ) : null}
           </div>
@@ -788,33 +830,36 @@ function MiniAppTabela() {
               <div style={styles.sub}>
                 Registros: <b>{filteredRows.length}</b> (filtrado) • Concluídos: <b>{concluidos}</b>
               </div>
+
+              <div style={{ ...styles.sub, marginTop: 4 }}>
+                Salvando:{' '}
+                <b style={{ color: saving ? 'var(--warning)' : 'var(--text-muted)' }}>{saving ? 'SIM' : 'NÃO'}</b>
+
+                {lastSavedAt && (
+                  <span style={{ marginLeft: 8 }}>
+                    Último: <b>{lastSavedAt}</b>
+                  </span>
+                )}
+              </div>
+
               <div style={{ ...styles.sub, marginTop: 4 }}>
                 Alterações pendentes:{' '}
-                <div style={{ ...styles.sub, marginTop: 4 }}>
-                  Salvando: <b style={{ color: saving ? 'var(--warning)' : 'var(--text-muted)' }}>
-                    {saving ? 'SIM' : 'NÃO'}
-                  </b>
+                <b style={{ color: dirtyCount ? 'var(--warning)' : 'var(--text-muted)' }}>{dirtyCount}</b>
+              </div>
 
-                  {lastSavedAt && (
-                    <span style={{ marginLeft: 8 }}>
-                      Último: <b>{lastSavedAt}</b>
-                    </span>
-                  )}
-                </div>
-
-                {saveError && (
-                  <div style={{
+              {saveError && (
+                <div
+                  style={{
                     marginTop: 6,
                     padding: 6,
                     border: '1px solid var(--danger)',
                     borderRadius: 8,
-                    fontSize: 11
-                  }}>
-                    ❌ {saveError}
-                  </div>
-                )}
-                <b style={{ color: dirtyCount ? 'var(--warning)' : 'var(--text-muted)' }}>{dirtyCount}</b>
-              </div>
+                    fontSize: 11,
+                  }}
+                >
+                  ❌ {saveError}
+                </div>
+              )}
             </div>
 
             <div style={styles.filtersRow}>
@@ -1142,20 +1187,5 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8,
     flexWrap: 'nowrap',
     alignItems: 'center',
-  },
-
-  finalizeWrap: {
-    marginTop: 10,
-    padding: 10,
-    border: '1px solid var(--border)',
-    background: 'var(--surface)',
-    borderRadius: 'var(--radius)',
-    boxShadow: 'var(--shadow)',
-  },
-
-  finalizeHint: {
-    marginTop: 8,
-    fontSize: 11,
-    color: 'var(--text-muted)',
   },
 };
