@@ -94,14 +94,6 @@ function safeTel(v: string) {
   return String(v || '').trim().replace(/[^\d+]/g, '');
 }
 
-function norm(s: string) {
-  return String(s || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
-}
-
 /**
  * ✅ Aceita:
  * ?csvId=...
