@@ -1,29 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 
-/**
- * ✅ Status ajustados:
- * - "SEM_RESPOSTA" -> "LIGAR_MAIS_TARDE"
- * - "CAIXA_POSTAL" some como botão próprio; fica agrupado com "NAO_ATENDEU" (compat)
- * - "CAIXA_POSTAL" (compat) + novo "NUMERO_NAO_EXISTE"
- */
 type Status =
   | 'PENDENTE'
   | 'NAO_ATENDEU'
   | 'OUTRA_CIDADE'
   | 'ATENDEU'
-  | 'CAIXA_POSTAL' // compat (se já existir salvo)
+  | 'CAIXA_POSTAL' // compat
   | 'LIGAR_MAIS_TARDE'
   | 'NUMERO_NAO_EXISTE';
 
 type PartePayload = {
   telegram_id?: string;
   telegram_username?: string;
-  categoria?: string; // "PARTE"
-  chave_parte?: string; // "P03"
+  categoria?: string;
+  chave_parte?: string;
   total_linhas?: number;
   tamanho_bytes?: number;
-  csv?: string; // CSV em string
+  csv?: string;
 };
 
 type Row = {
@@ -31,7 +25,6 @@ type Row = {
   LINE: number;
   IDP: string;
 
-  // geo (podem sumir do CSV -> fica '')
   ESTADO: string;
   CIDADE: string;
   REGIAO_CIDADE: string;
@@ -46,7 +39,10 @@ type Row = {
 type StatusFilter = 'TODOS' | 'PENDENTES' | 'CONCLUIDOS' | Status;
 
 const PAGE_SIZE = 20;
-const API_BASE = 'https://n8n.srv962474.hstgr.cloud/webhook';
+
+// Ajuste se o seu n8n tiver outro path
+const API_GET_ENTREGA = 'https://n8n.srv962474.hstgr.cloud/webhook/entregas';
+const API_SAVE_PARTE = 'https://n8n.srv962474.hstgr.cloud/webhook/parte/salvar';
 
 // =========================
 // CSS / THEME
@@ -94,29 +90,21 @@ function safeTel(v: string) {
   return String(v || '').trim().replace(/[^\d+]/g, '');
 }
 
-/**
- * ✅ Aceita:
- * ?entregaId=... (preferencial)
- * ?telegram_id=...
- * ?tid=...
- * ?id=...
- */
 function getEntregaPkFromUrl(): string {
   const sp = new URLSearchParams(window.location.search || '');
-  const direct = sp.get('entregaId') || sp.get('id') || sp.get('entrega_id') || '';
+  const direct = sp.get('entregaId') || sp.get('entrega_id') || sp.get('id') || '';
   if (direct) return direct;
 
   const h = window.location.hash || '';
   const q = h.includes('?') ? h.split('?')[1] : '';
   const hp = new URLSearchParams(q);
-  return hp.get('entregaId') || hp.get('id') || hp.get('entrega_id') || '';
+  return hp.get('entregaId') || hp.get('entrega_id') || hp.get('id') || '';
 }
 
-function getTelegramId(): string {
+function getTelegramIdStrict(): string {
   const w: any = window as any;
   const tgId = w?.Telegram?.WebApp?.initDataUnsafe?.user?.id;
-  if (tgId) return String(tgId);
-  return getEntregaPkFromUrl();
+  return tgId ? String(tgId) : '';
 }
 
 function getParteFromUrl(): string {
@@ -144,20 +132,15 @@ function statusVars(s: Status) {
   switch (s) {
     case 'ATENDEU':
       return { bd: 'var(--success)', bg: 'rgba(34,197,94,.14)' };
-
     case 'OUTRA_CIDADE':
       return { bd: 'var(--warning)', bg: 'rgba(245,158,11,.14)' };
-
     case 'LIGAR_MAIS_TARDE':
       return { bd: 'var(--blueDark)', bg: 'rgba(30,58,138,.18)' };
-
     case 'NUMERO_NAO_EXISTE':
       return { bd: 'var(--blueLight)', bg: 'rgba(56,189,248,.16)' };
-
     case 'NAO_ATENDEU':
-    case 'CAIXA_POSTAL': // agrupado visualmente
+    case 'CAIXA_POSTAL':
       return { bd: 'var(--danger)', bg: 'rgba(239,68,68,.14)' };
-
     default:
       return { bd: 'var(--border)', bg: 'rgba(255,255,255,.06)' };
   }
@@ -181,9 +164,6 @@ function rowBg(status: Status) {
   }
 }
 
-/**
- * CSV parser simples (suporta aspas)
- */
 function parseCsv(csv: string): { headers: string[]; rows: Record<string, string>[] } {
   const text = String(csv || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   if (!text) return { headers: [], rows: [] };
@@ -194,7 +174,6 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
 
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
-
     if (ch === '"') {
       const next = text[i + 1];
       if (inQuotes && next === '"') {
@@ -205,13 +184,11 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
       }
       continue;
     }
-
     if (ch === '\n' && !inQuotes) {
       lines.push(cur);
       cur = '';
       continue;
     }
-
     cur += ch;
   }
   if (cur) lines.push(cur);
@@ -268,8 +245,6 @@ function toUpperTrim(v: string) {
 
 function sanitizeStatus(raw: string): Status {
   const s = toUpperTrim(raw);
-
-  // aceita também legados
   if (s === 'SEM_RESPOSTA') return 'LIGAR_MAIS_TARDE';
 
   if (
@@ -339,7 +314,7 @@ function StatusPill({ status }: { status: Status }) {
         border: `1px solid ${c.bd}`,
         background: c.bg,
         fontWeight: 900,
-        fontSize: 10,
+        fontSize: 11,
         color: 'var(--text)',
         whiteSpace: 'nowrap',
       }}
@@ -393,45 +368,75 @@ function MiniTel({
   value,
   disabled,
   onClick,
+  onCopy,
 }: {
   label: string;
   value: string;
   disabled: boolean;
   onClick: () => void;
+  onCopy: () => void;
 }) {
   return (
-    <button
-      disabled={disabled}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      style={{
-        border: '1px solid var(--border)',
-        background: disabled ? 'var(--surface)' : 'var(--primary)',
-        color: disabled ? 'var(--text-muted)' : 'var(--primary-text)',
-        padding: '6px 10px',
-        borderRadius: 8,
-        fontSize: 11,
-        fontWeight: 900,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        whiteSpace: 'nowrap',
-      }}
-      title={value || ''}
-    >
-      {label} 📞
-    </button>
+    <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+      <button
+        disabled={disabled}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
+        style={{
+          border: '1px solid var(--border)',
+          background: disabled ? 'var(--surface)' : 'var(--primary)',
+          color: disabled ? 'var(--text-muted)' : 'var(--primary-text)',
+          padding: '7px 12px',
+          borderRadius: 10,
+          fontSize: 12,
+          fontWeight: 900,
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          whiteSpace: 'nowrap',
+        }}
+        title={value || ''}
+      >
+        {label} 📞
+      </button>
+
+      {/* ✅ copiar SOMENTE telefone */}
+      <button
+        disabled={!value}
+        onClick={(e) => {
+          e.stopPropagation();
+          onCopy();
+        }}
+        style={{
+          border: '1px solid rgba(255,255,255,.18)',
+          background: 'rgba(255,255,255,.06)',
+          color: 'var(--text)',
+          padding: '7px 10px',
+          borderRadius: 10,
+          fontSize: 12,
+          fontWeight: 900,
+          cursor: !value ? 'not-allowed' : 'pointer',
+          whiteSpace: 'nowrap',
+        }}
+        title={value ? `Copiar ${label}` : ''}
+      >
+        📋
+      </button>
+    </div>
   );
 }
-
 function RowActions({
   row,
   onToggleStatus,
   onCall,
+  onSetObsForOutraCidade,
+  onCopyPhone,
 }: {
   row: Row;
   onToggleStatus: (next: Exclude<Status, 'PENDENTE'>) => void;
   onCall: (which: 'TF1' | 'TF2') => void;
+  onSetObsForOutraCidade: () => void;
+  onCopyPhone: (which: 'TF1' | 'TF2') => void;
 }) {
   const tf1 = safeTel(row.TF1);
   const tf2 = safeTel(row.TF2);
@@ -445,7 +450,16 @@ function RowActions({
           🔴 Não atendeu/caixa postal
         </ActionButton>
 
-        <ActionButton active={row.STATUS === 'OUTRA_CIDADE'} kind="warning" onClick={() => onToggleStatus('OUTRA_CIDADE')}>
+        {/* ✅ OUTRA CIDADE com POPUP */}
+        <ActionButton
+          active={row.STATUS === 'OUTRA_CIDADE'}
+          kind="warning"
+          onClick={() => {
+            // se está indo para OUTRA_CIDADE, abre popup (e salva observação)
+            if (row.STATUS !== 'OUTRA_CIDADE') onSetObsForOutraCidade();
+            onToggleStatus('OUTRA_CIDADE');
+          }}
+        >
           🟠 Outra cidade
         </ActionButton>
 
@@ -463,8 +477,8 @@ function RowActions({
       </div>
 
       <div style={styles.inlineGroup}>
-        <MiniTel label="TF1" value={row.TF1} disabled={!tf1} onClick={() => onCall('TF1')} />
-        <MiniTel label="TF2" value={row.TF2} disabled={!tf2} onClick={() => onCall('TF2')} />
+        <MiniTel label="TF1" value={row.TF1} disabled={!tf1} onClick={() => onCall('TF1')} onCopy={() => onCopyPhone('TF1')} />
+        <MiniTel label="TF2" value={row.TF2} disabled={!tf2} onClick={() => onCall('TF2')} onCopy={() => onCopyPhone('TF2')} />
       </div>
     </div>
   );
@@ -478,7 +492,9 @@ function FragmentRow({
   onToggleStatus,
   onCall,
   geoCols,
-  onCopy,
+  onCopyIdp,
+  onSetObsForOutraCidade,
+  onCopyPhone,
 }: {
   row: Row;
   isExpanded: boolean;
@@ -487,7 +503,9 @@ function FragmentRow({
   onToggleStatus: (next: Exclude<Status, 'PENDENTE'>) => void;
   onCall: (which: 'TF1' | 'TF2') => void;
   geoCols: { estado: boolean; cidade: boolean; regiao: boolean };
-  onCopy: (label: string, value: string) => void;
+  onCopyIdp: () => void;
+  onSetObsForOutraCidade: () => void;
+  onCopyPhone: (which: 'TF1' | 'TF2') => void;
 }) {
   const selectedBg = 'rgba(255,255,255,.07)';
 
@@ -505,55 +523,22 @@ function FragmentRow({
           <StatusPill status={row.STATUS} />
         </td>
 
+        {/* ✅ COPIAR SOMENTE IDP */}
         <td
           style={{ ...styles.td, cursor: 'copy' }}
           title="Clique para copiar IDP"
           onClick={(e) => {
             e.stopPropagation();
-            onCopy('IDP', row.IDP);
+            onCopyIdp();
           }}
         >
           {row.IDP}
         </td>
 
-        {geoCols.estado ? (
-          <td
-            style={{ ...styles.td, cursor: 'copy' }}
-            title="Clique para copiar Estado"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCopy('Estado', row.ESTADO);
-            }}
-          >
-            {row.ESTADO || '—'}
-          </td>
-        ) : null}
-
-        {geoCols.cidade ? (
-          <td
-            style={{ ...styles.td, cursor: 'copy' }}
-            title="Clique para copiar Cidade"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCopy('Cidade', row.CIDADE);
-            }}
-          >
-            {row.CIDADE || '—'}
-          </td>
-        ) : null}
-
-        {geoCols.regiao ? (
-          <td
-            style={{ ...styles.td, cursor: 'copy' }}
-            title="Clique para copiar Região"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCopy('Região', row.REGIAO_CIDADE);
-            }}
-          >
-            {row.REGIAO_CIDADE || '—'}
-          </td>
-        ) : null}
+        {/* ❌ SEM COPIAR nessas colunas */}
+        {geoCols.estado ? <td style={styles.td}>{row.ESTADO || '—'}</td> : null}
+        {geoCols.cidade ? <td style={styles.td}>{row.CIDADE || '—'}</td> : null}
+        {geoCols.regiao ? <td style={styles.td}>{row.REGIAO_CIDADE || '—'}</td> : null}
 
         <td style={styles.td}>{row.TF1 || '—'}</td>
         <td style={styles.td}>{row.TF2 || '—'}</td>
@@ -561,14 +546,24 @@ function FragmentRow({
 
       {isExpanded ? (
         <tr style={{ background: 'var(--surface-2)' }}>
-          <td colSpan={2 + (geoCols.estado ? 1 : 0) + (geoCols.cidade ? 1 : 0) + (geoCols.regiao ? 1 : 0) + 2} style={{ padding: 0, borderBottom: '1px solid var(--border)' }}>
-            <RowActions row={row} onToggleStatus={onToggleStatus} onCall={onCall} />
+          <td
+            colSpan={2 + (geoCols.estado ? 1 : 0) + (geoCols.cidade ? 1 : 0) + (geoCols.regiao ? 1 : 0) + 2}
+            style={{ padding: 0, borderBottom: '1px solid var(--border)' }}
+          >
+            <RowActions
+              row={row}
+              onToggleStatus={onToggleStatus}
+              onCall={onCall}
+              onSetObsForOutraCidade={onSetObsForOutraCidade}
+              onCopyPhone={onCopyPhone}
+            />
           </td>
         </tr>
       ) : null}
     </>
   );
 }
+
 // =========================
 // MAIN PAGE
 // =========================
@@ -593,16 +588,13 @@ function MiniAppTabela() {
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<string>('');
 
-  // ✅ copiar
   const [toast, setToast] = useState<string>('');
 
-  // ✅ alterações pendentes (LINE => {STATUS, OBSERVACAO})
+  // alterações pendentes (LINE => {STATUS, OBSERVACAO})
   const [dirty, setDirty] = useState<Record<string, { STATUS: Status; OBSERVACAO: string }>>({});
   const dirtyCount = useMemo(() => Object.keys(dirty).length, [dirty]);
 
-  // =========================
-  // 1) FETCH payload por csvId
-  // =========================
+  // 1) FETCH payload por entregaId (PK)
   useEffect(() => {
     const entregaId = getEntregaPkFromUrl();
     if (!entregaId) return;
@@ -613,7 +605,7 @@ function MiniAppTabela() {
         setError('');
         setPayload(null);
 
-        const url = `${API_BASE.replace(/\/$/, '')}/entregas?id=${encodeURIComponent(entregaId)}`;
+        const url = `${API_GET_ENTREGA}?id=${encodeURIComponent(entregaId)}`;
         const resp = await fetch(url, { cache: 'no-store' });
 
         if (!resp.ok) {
@@ -632,7 +624,7 @@ function MiniAppTabela() {
     })();
   }, []);
 
-  // ✅ 2) opcional: payload via evento
+  // 2) opcional: payload via evento
   useEffect(() => {
     const handler = (ev: Event) => {
       const ce = ev as CustomEvent;
@@ -643,7 +635,7 @@ function MiniAppTabela() {
     return () => window.removeEventListener('IBESPE_PAYLOAD', handler as any);
   }, []);
 
-  // ✅ 3) Quando payload chegar, preenche rows/parte
+  // 3) Quando payload chegar, preenche rows/parte
   useEffect(() => {
     if (!payload || payload.length === 0) return;
 
@@ -661,15 +653,13 @@ function MiniAppTabela() {
     const parsed = csvToAppRows(csv, parteFromApi);
     setParte(parsed.parte || parteFromApi);
     setAllRows(parsed.rows);
+
     setDirty({});
     setExpandedId('');
     setPage(1);
     setError('');
   }, [payload]);
 
-  // =========================
-  // Detecta se geo cols estão vazias (para ocultar)
-  // =========================
   const geoCols = useMemo(() => {
     const hasEstado = allRows.some((r) => String(r.ESTADO || '').trim().length > 0);
     const hasCidade = allRows.some((r) => String(r.CIDADE || '').trim().length > 0);
@@ -707,9 +697,6 @@ function MiniAppTabela() {
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [allRows, geoCols.regiao]);
 
-  // =========================
-  // Filtragem (sem busca textual)
-  // =========================
   const filteredRows = useMemo(() => {
     return allRows.filter((r) => {
       if (geoCols.estado && estadoFilter !== 'TODOS') {
@@ -756,29 +743,50 @@ function MiniAppTabela() {
     setAllRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   }
 
-  function toggleStatusForRow(row: Row, next: Exclude<Status, 'PENDENTE'>) {
-    const newStatus: Status = row.STATUS === next ? 'PENDENTE' : next;
-    updateRow(row.id, { STATUS: newStatus });
+  /**
+   * ✅ Atualiza "dirty" para autosave:
+   * sempre que alterar status OU observação
+   */
+  function markDirty(row: Row, patch: { STATUS?: Status; OBSERVACAO?: string }) {
+    const nextStatus = patch.STATUS ?? row.STATUS;
+    const nextObs = patch.OBSERVACAO ?? row.OBSERVACAO ?? '';
 
     setDirty((prev) => ({
       ...prev,
       [String(row.LINE)]: {
-        STATUS: newStatus,
-        OBSERVACAO: prev[String(row.LINE)]?.OBSERVACAO ?? row.OBSERVACAO ?? '',
+        STATUS: nextStatus,
+        OBSERVACAO: nextObs,
       },
     }));
-
     setSaveTick((x) => x + 1);
   }
 
-  // =========================
+  function toggleStatusForRow(row: Row, next: Exclude<Status, 'PENDENTE'>) {
+    const newStatus: Status = row.STATUS === next ? 'PENDENTE' : next;
+    updateRow(row.id, { STATUS: newStatus });
+    markDirty(row, { STATUS: newStatus });
+  }
+
+  /**
+   * ✅ Quando clicar em OUTRA_CIDADE e estiver mudando pra OUTRA_CIDADE:
+   * abre popup e salva em OBSERVACAO
+   */
+  function askOutraCidadeObs(row: Row) {
+    const current = String(row.OBSERVACAO || '').trim();
+    const val = window.prompt('Qual cidade?', current || '');
+    if (val === null) return; // cancelou
+    const cleaned = String(val || '').trim();
+    updateRow(row.id, { OBSERVACAO: cleaned });
+    markDirty(row, { OBSERVACAO: cleaned });
+  }
+
   // AUTOSAVE (debounce 800ms)
-  // =========================
   useEffect(() => {
-    const entregaId = getTelegramId();
+    const entrega_id = getEntregaPkFromUrl();
+    const telegram_id = getTelegramIdStrict();
     const parteUrl = getParteFromUrl() || parte || (payload?.[0]?.chave_parte ? String(payload[0].chave_parte) : '');
 
-    if (!entregaId || !parteUrl) return;
+    if (!entrega_id || !parteUrl) return;
 
     const entries = Object.entries(dirty);
     if (!entries.length) return;
@@ -795,14 +803,13 @@ function MiniAppTabela() {
         setSaving(true);
         setSaveError('');
 
-        const url = `${API_BASE.replace(/\/$/, '')}/parte/salvar`;
-
-        const resp = await fetch(url, {
+        const resp = await fetch(API_SAVE_PARTE, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           cache: 'no-store',
           body: JSON.stringify({
-            telegram_id: entregaId,
+            entrega_id,
+            telegram_id,
             chave_parte: parteUrl,
             changes,
           }),
@@ -817,10 +824,9 @@ function MiniAppTabela() {
         setLastSavedAt(new Date().toLocaleTimeString());
       } catch (e: any) {
         const msg = String(e?.message || e);
-        // ✅ "Failed to fetch" normalmente é CORS / endpoint inválido / rede
         if (msg.toLowerCase().includes('failed to fetch')) {
           setSaveError(
-            'Failed to fetch — normalmente é CORS ou endpoint /parte/salvar inexistente no n8n. Verifique: CORS (Access-Control-Allow-Origin), SSL e se a rota /parte/salvar está publicada.'
+            'Failed to fetch — normalmente é CORS, URL do webhook errada, SSL ou o endpoint /parte/salvar não está publicado/ativo no n8n. Verifique Network/Console.'
           );
         } else {
           setSaveError(msg);
@@ -848,7 +854,6 @@ function MiniAppTabela() {
       setToast(`Copiado (${label}): ${v}`);
       setTimeout(() => setToast(''), 1600);
     } catch {
-      // fallback
       try {
         const ta = document.createElement('textarea');
         ta.value = v;
@@ -865,15 +870,13 @@ function MiniAppTabela() {
     }
   }
 
-  // contagens
   const pendentes = useMemo(() => filteredRows.filter((r) => r.STATUS === 'PENDENTE').length, [filteredRows]);
   const concluidos = useMemo(() => filteredRows.filter((r) => r.STATUS !== 'PENDENTE').length, [filteredRows]);
-
   const hasData = allRows.length > 0;
 
   const hintLink = useMemo(() => {
     const base = `${window.location.origin}${window.location.pathname}#/?`;
-    return `${base}entregaId=SEU_ENTREGA_ID&entregaId=SEU_TELEGRAM_ID&parte=P03`;
+    return `${base}entregaId=SEU_ENTREGA_ID&parte=P03`;
   }, []);
 
   function PaginationControls() {
@@ -903,10 +906,10 @@ function MiniAppTabela() {
       {!hasData ? (
         <div style={styles.card}>
           <div style={{ padding: 14, color: 'var(--text)' }}>
-            <div style={{ fontWeight: 900, fontSize: 13 }}>{loading ? 'Carregando…' : 'Aguardando dados…'}</div>
+            <div style={{ fontWeight: 900, fontSize: 14 }}>{loading ? 'Carregando…' : 'Aguardando dados…'}</div>
 
-            <div style={{ color: 'var(--text-muted)', marginTop: 6, fontSize: 11 }}>
-              {loading ? 'Buscando o CSV no servidor (n8n → Supabase).' : 'Abra com csvId para carregar. Exemplo:'}
+            <div style={{ color: 'var(--text-muted)', marginTop: 6, fontSize: 12 }}>
+              {loading ? 'Buscando o CSV no servidor (n8n → Supabase).' : 'Abra com entregaId para carregar. Exemplo:'}
             </div>
 
             {!loading && (
@@ -916,7 +919,7 @@ function MiniAppTabela() {
                   padding: 10,
                   border: '1px solid var(--border)',
                   borderRadius: 10,
-                  fontSize: 11,
+                  fontSize: 12,
                   color: 'var(--text-muted)',
                   wordBreak: 'break-all',
                 }}
@@ -928,8 +931,8 @@ function MiniAppTabela() {
             {error ? (
               <div style={{ marginTop: 10, padding: 10, border: '1px solid var(--danger)', borderRadius: 10 }}>
                 <div style={{ fontWeight: 900 }}>⚠️ Erro</div>
-                <div style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 4 }}>{error}</div>
-                <div style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 6 }}>
+                <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>{error}</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6 }}>
                   Se aparecer “CORS” no console, seu n8n precisa liberar Access-Control-Allow-Origin.
                 </div>
               </div>
@@ -948,30 +951,27 @@ function MiniAppTabela() {
                 Registros: <b>{filteredRows.length}</b> (filtrado) • Concluídos: <b>{concluidos}</b> • Pendentes: <b>{pendentes}</b>
               </div>
 
-              <div style={{ ...styles.sub, marginTop: 4 }}>
-                Salvando:{' '}
-                <b style={{ color: saving ? 'var(--warning)' : 'var(--text-muted)' }}>{saving ? 'SIM' : 'NÃO'}</b>
-
+              <div style={{ ...styles.sub, marginTop: 6 }}>
+                Salvando: <b style={{ color: saving ? 'var(--warning)' : 'var(--text-muted)' }}>{saving ? 'SIM' : 'NÃO'}</b>
                 {lastSavedAt && (
-                  <span style={{ marginLeft: 8 }}>
+                  <span style={{ marginLeft: 10 }}>
                     Último: <b>{lastSavedAt}</b>
                   </span>
                 )}
               </div>
 
-              <div style={{ ...styles.sub, marginTop: 4 }}>
-                Alterações pendentes:{' '}
-                <b style={{ color: dirtyCount ? 'var(--warning)' : 'var(--text-muted)' }}>{dirtyCount}</b>
+              <div style={{ ...styles.sub, marginTop: 6 }}>
+                Alterações pendentes: <b style={{ color: dirtyCount ? 'var(--warning)' : 'var(--text-muted)' }}>{dirtyCount}</b>
               </div>
 
               {saveError && (
-                <div style={{ marginTop: 6, padding: 8, border: '1px solid var(--danger)', borderRadius: 8, fontSize: 11 }}>
+                <div style={{ marginTop: 8, padding: 10, border: '1px solid var(--danger)', borderRadius: 10, fontSize: 12 }}>
                   ❌ {saveError}
                 </div>
               )}
 
               {toast && (
-                <div style={{ marginTop: 6, padding: 8, border: '1px solid rgba(255,255,255,.18)', borderRadius: 8, fontSize: 11 }}>
+                <div style={{ marginTop: 8, padding: 10, border: '1px solid rgba(255,255,255,.18)', borderRadius: 10, fontSize: 12 }}>
                   ✅ {toast}
                 </div>
               )}
@@ -982,7 +982,6 @@ function MiniAppTabela() {
                 <option value="TODOS">Status: Todos</option>
                 <option value="PENDENTES">Status: Pendentes</option>
                 <option value="CONCLUIDOS">Status: Concluídos</option>
-
                 <option value="ATENDEU">Status: Atendeu</option>
                 <option value="OUTRA_CIDADE">Status: Outra cidade</option>
                 <option value="NAO_ATENDEU">Status: Não atendeu/caixa postal</option>
@@ -1036,7 +1035,6 @@ function MiniAppTabela() {
               </button>
             </div>
 
-            {/* Paginação em cima */}
             <PaginationControls />
           </div>
 
@@ -1044,7 +1042,7 @@ function MiniAppTabela() {
             <div style={styles.cardHeader}>
               <div>
                 <div style={styles.cardTitle}>Tabela (20 por página)</div>
-                <div style={styles.cardSub}>Clique na linha para expandir. Clique em IDP/Estado/Cidade/Região para copiar.</div>
+                <div style={styles.cardSub}>Clique na linha para expandir. Copiar só em IDP e telefones.</div>
               </div>
             </div>
 
@@ -1079,14 +1077,19 @@ function MiniAppTabela() {
                         onToggleExpand={() => setExpandedId((cur) => (cur === r.id ? '' : r.id))}
                         onToggleStatus={(next) => toggleStatusForRow(r, next)}
                         onCall={(which) => callPhoneForRow(r, which)}
-                        onCopy={(label, value) => copyToClipboard(label, value)}
+                        onCopyIdp={() => copyToClipboard('IDP', r.IDP)}
+                        onSetObsForOutraCidade={() => askOutraCidadeObs(r)}
+                        onCopyPhone={(which) => copyToClipboard(which, r[which])}
                       />
                     );
                   })}
 
                   {pageRows.length === 0 ? (
                     <tr>
-                      <td colSpan={2 + (geoCols.estado ? 1 : 0) + (geoCols.cidade ? 1 : 0) + (geoCols.regiao ? 1 : 0) + 2} style={{ padding: 14, color: 'var(--text-muted)', fontSize: 12 }}>
+                      <td
+                        colSpan={2 + (geoCols.estado ? 1 : 0) + (geoCols.cidade ? 1 : 0) + (geoCols.regiao ? 1 : 0) + 2}
+                        style={{ padding: 14, color: 'var(--text-muted)', fontSize: 13 }}
+                      >
                         Nenhum registro encontrado com esses filtros.
                       </td>
                     </tr>
@@ -1097,7 +1100,6 @@ function MiniAppTabela() {
 
             <div style={styles.footerHint}>✅ Clique no mesmo botão novamente para voltar a PENDENTE.</div>
 
-            {/* Paginação em baixo */}
             <div style={{ padding: 10, borderTop: '1px solid var(--border)', background: 'var(--surface-2)' }}>
               <PaginationControls />
             </div>
@@ -1151,24 +1153,24 @@ const styles: Record<string, React.CSSProperties> = {
     flexWrap: 'wrap',
     marginBottom: 10,
   },
-  h1: { fontWeight: 900, fontSize: 14, color: 'var(--text)' },
-  sub: { fontSize: 12, color: 'var(--text-muted)', marginTop: 4 },
+  h1: { fontWeight: 900, fontSize: 15, color: 'var(--text)' },
+  sub: { fontSize: 13, color: 'var(--text-muted)', marginTop: 4 },
 
   filtersRow: {
     display: 'flex',
     gap: 8,
     flexWrap: 'wrap',
     alignItems: 'center',
-    maxWidth: 860,
+    maxWidth: 900,
   },
 
   select: {
     border: '1px solid var(--border)',
     background: 'var(--surface-2)',
     color: 'var(--text)',
-    padding: '9px 10px',
+    padding: '10px 12px',
     borderRadius: 10,
-    fontSize: 12,
+    fontSize: 13,
     outline: 'none',
   },
 
@@ -1177,9 +1179,9 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid var(--border)',
     background: 'var(--surface-2)',
     color: 'var(--text)',
-    padding: '7px 9px',
+    padding: '8px 10px',
     borderRadius: 999,
-    fontSize: 12,
+    fontSize: 13,
     display: 'flex',
     gap: 6,
     alignItems: 'center',
@@ -1190,10 +1192,10 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid var(--border)',
     background: 'var(--secondary)',
     color: 'var(--secondary-text)',
-    padding: '9px 11px',
+    padding: '10px 12px',
     borderRadius: 10,
     fontWeight: 900,
-    fontSize: 12,
+    fontSize: 13,
     cursor: 'pointer',
   },
   btnPrimary: {
@@ -1214,8 +1216,8 @@ const styles: Record<string, React.CSSProperties> = {
     borderBottom: '1px solid var(--border)',
     background: 'var(--surface-2)',
   },
-  cardTitle: { fontWeight: 900, fontSize: 13, color: 'var(--text)' },
-  cardSub: { fontSize: 12, color: 'var(--text-muted)', marginTop: 4 },
+  cardTitle: { fontWeight: 900, fontSize: 14, color: 'var(--text)' },
+  cardSub: { fontSize: 13, color: 'var(--text-muted)', marginTop: 4 },
 
   tableWrap: { overflow: 'auto' },
   table: { width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 860 },
@@ -1224,8 +1226,8 @@ const styles: Record<string, React.CSSProperties> = {
     top: 0,
     background: 'var(--surface-2)',
     borderBottom: '1px solid var(--border)',
-    padding: '8px 10px',
-    fontSize: 12,
+    padding: '10px 12px',
+    fontSize: 13,
     textAlign: 'left',
     color: 'var(--text-muted)',
     whiteSpace: 'nowrap',
@@ -1233,8 +1235,8 @@ const styles: Record<string, React.CSSProperties> = {
   tr: { cursor: 'pointer' },
   td: {
     borderBottom: '1px solid var(--border)',
-    padding: '9px 10px',
-    fontSize: 12,
+    padding: '11px 12px',
+    fontSize: 13,
     color: 'var(--text)',
     whiteSpace: 'nowrap',
     userSelect: 'text',
@@ -1243,13 +1245,13 @@ const styles: Record<string, React.CSSProperties> = {
   footerHint: {
     padding: 10,
     color: 'var(--text-muted)',
-    fontSize: 12,
+    fontSize: 13,
   },
 
   btnAction: {
-    padding: '7px 10px',
+    padding: '9px 12px',
     borderRadius: 10,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 900,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
