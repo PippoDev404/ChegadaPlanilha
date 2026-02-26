@@ -96,43 +96,27 @@ function safeTel(v: string) {
 
 /**
  * ✅ Aceita:
- * ?csvId=...
- * ?id=...
- */
-function getCsvIdFromUrl(): string {
-  const sp = new URLSearchParams(window.location.search || '');
-  const direct = sp.get('csvId') || sp.get('id') || '';
-  if (direct) return direct;
-
-  const h = window.location.hash || '';
-  const q = h.includes('?') ? h.split('?')[1] : '';
-  const hp = new URLSearchParams(q);
-  return hp.get('csvId') || hp.get('id') || '';
-}
-
-/**
- * ✅ Aceita:
  * ?entregaId=... (preferencial)
  * ?telegram_id=...
  * ?tid=...
  * ?id=...
  */
-function getEntregaIdFromUrl(): string {
+function getEntregaPkFromUrl(): string {
   const sp = new URLSearchParams(window.location.search || '');
-  const direct = sp.get('entregaId') || sp.get('telegram_id') || sp.get('tid') || sp.get('id') || '';
+  const direct = sp.get('entregaId') || sp.get('id') || sp.get('entrega_id') || '';
   if (direct) return direct;
 
   const h = window.location.hash || '';
   const q = h.includes('?') ? h.split('?')[1] : '';
   const hp = new URLSearchParams(q);
-  return hp.get('entregaId') || hp.get('telegram_id') || hp.get('tid') || hp.get('id') || '';
+  return hp.get('entregaId') || hp.get('id') || hp.get('entrega_id') || '';
 }
 
 function getTelegramId(): string {
   const w: any = window as any;
   const tgId = w?.Telegram?.WebApp?.initDataUnsafe?.user?.id;
   if (tgId) return String(tgId);
-  return getEntregaIdFromUrl();
+  return getEntregaPkFromUrl();
 }
 
 function getParteFromUrl(): string {
@@ -620,8 +604,8 @@ function MiniAppTabela() {
   // 1) FETCH payload por csvId
   // =========================
   useEffect(() => {
-    const csvId = getCsvIdFromUrl();
-    if (!csvId) return;
+    const entregaId = getEntregaPkFromUrl();
+    if (!entregaId) return;
 
     (async () => {
       try {
@@ -629,7 +613,7 @@ function MiniAppTabela() {
         setError('');
         setPayload(null);
 
-        const url = `${API_BASE.replace(/\/$/, '')}/entregas?id=${encodeURIComponent(csvId)}`;
+        const url = `${API_BASE.replace(/\/$/, '')}/entregas?id=${encodeURIComponent(entregaId)}`;
         const resp = await fetch(url, { cache: 'no-store' });
 
         if (!resp.ok) {
@@ -889,7 +873,7 @@ function MiniAppTabela() {
 
   const hintLink = useMemo(() => {
     const base = `${window.location.origin}${window.location.pathname}#/?`;
-    return `${base}csvId=SEU_CSVID&entregaId=SEU_TELEGRAM_ID&parte=P03`;
+    return `${base}entregaId=SEU_ENTREGA_ID&entregaId=SEU_TELEGRAM_ID&parte=P03`;
   }, []);
 
   function PaginationControls() {
