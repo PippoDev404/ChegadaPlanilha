@@ -2,9 +2,19 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 
 /**
- * ✅ Ajuste aqui os status que você quer usar no seu projeto.
+ * ✅ Status ajustados:
+ * - "SEM_RESPOSTA" -> "LIGAR_MAIS_TARDE"
+ * - "CAIXA_POSTAL" some como botão próprio; fica agrupado com "NAO_ATENDEU" (compat)
+ * - "CAIXA_POSTAL" (compat) + novo "NUMERO_NAO_EXISTE"
  */
-type Status = 'PENDENTE' | 'NAO_ATENDEU' | 'OUTRA_CIDADE' | 'ATENDEU' | 'CAIXA_POSTAL' | 'SEM_RESPOSTA';
+type Status =
+  | 'PENDENTE'
+  | 'NAO_ATENDEU'
+  | 'OUTRA_CIDADE'
+  | 'ATENDEU'
+  | 'CAIXA_POSTAL' // compat (se já existir salvo)
+  | 'LIGAR_MAIS_TARDE'
+  | 'NUMERO_NAO_EXISTE';
 
 type PartePayload = {
   telegram_id?: string;
@@ -20,15 +30,14 @@ type Row = {
   id: string;
   LINE: number;
   IDP: string;
+
+  // geo (podem sumir do CSV -> fica '')
   ESTADO: string;
   CIDADE: string;
   REGIAO_CIDADE: string;
+
   TF1: string;
   TF2: string;
-  TF3: string;
-  TF4: string;
-  N_PESQ: string;
-  DIA_PESQ: string;
 
   STATUS: Status;
   OBSERVACAO: string;
@@ -37,12 +46,6 @@ type Row = {
 type StatusFilter = 'TODOS' | 'PENDENTES' | 'CONCLUIDOS' | Status;
 
 const PAGE_SIZE = 20;
-
-/**
- * ✅ BASE LIMPA (SEM /parte/by-id e SEM ?id=...)
- * Exemplo:
- * https://n8n.seudominio.com/webhook/api
- */
 const API_BASE = 'https://n8n.srv962474.hstgr.cloud/webhook';
 
 // =========================
@@ -67,6 +70,9 @@ const globalCss = `
   --warning: #F59E0B;
   --danger:  #EF4444;
 
+  --blueDark: #1E3A8A;   /* Ligar mais tarde */
+  --blueLight: #38BDF8;  /* Número não existe */
+
   --shadow: 0 10px 30px rgba(0,0,0,.35);
   --radius: 15px;
 }
@@ -77,7 +83,6 @@ body{
   margin: 0;
   padding: 0;
 }
-
 *{ box-sizing: border-box; }
 button:disabled{ opacity: .55; cursor: not-allowed !important; }
 `;
@@ -122,12 +127,7 @@ function getCsvIdFromUrl(): string {
  */
 function getEntregaIdFromUrl(): string {
   const sp = new URLSearchParams(window.location.search || '');
-  const direct =
-    sp.get('entregaId') ||
-    sp.get('telegram_id') ||
-    sp.get('tid') ||
-    sp.get('id') ||
-    '';
+  const direct = sp.get('entregaId') || sp.get('telegram_id') || sp.get('tid') || sp.get('id') || '';
   if (direct) return direct;
 
   const h = window.location.hash || '';
@@ -140,8 +140,6 @@ function getTelegramId(): string {
   const w: any = window as any;
   const tgId = w?.Telegram?.WebApp?.initDataUnsafe?.user?.id;
   if (tgId) return String(tgId);
-
-  // fallback para teste fora do Telegram
   return getEntregaIdFromUrl();
 }
 
@@ -159,9 +157,10 @@ function getParteFromUrl(): string {
 function statusText(s: Status) {
   if (s === 'ATENDEU') return 'CONCLUÍDO • ATENDEU';
   if (s === 'OUTRA_CIDADE') return 'CONCLUÍDO • OUTRA CIDADE';
-  if (s === 'NAO_ATENDEU') return 'CONCLUÍDO • NÃO ATENDEU';
-  if (s === 'CAIXA_POSTAL') return 'CONCLUÍDO • CAIXA POSTAL';
-  if (s === 'SEM_RESPOSTA') return 'CONCLUÍDO • SEM RESPOSTA';
+  if (s === 'NAO_ATENDEU') return 'CONCLUÍDO • NÃO ATENDEU/CAIXA POSTAL';
+  if (s === 'CAIXA_POSTAL') return 'CONCLUÍDO • NÃO ATENDEU/CAIXA POSTAL';
+  if (s === 'LIGAR_MAIS_TARDE') return 'CONCLUÍDO • LIGAR MAIS TARDE';
+  if (s === 'NUMERO_NAO_EXISTE') return 'CONCLUÍDO • NÚMERO NÃO EXISTE';
   return 'PENDENTE';
 }
 
@@ -169,12 +168,20 @@ function statusVars(s: Status) {
   switch (s) {
     case 'ATENDEU':
       return { bd: 'var(--success)', bg: 'rgba(34,197,94,.14)' };
+
     case 'OUTRA_CIDADE':
-    case 'CAIXA_POSTAL':
       return { bd: 'var(--warning)', bg: 'rgba(245,158,11,.14)' };
+
+    case 'LIGAR_MAIS_TARDE':
+      return { bd: 'var(--blueDark)', bg: 'rgba(30,58,138,.18)' };
+
+    case 'NUMERO_NAO_EXISTE':
+      return { bd: 'var(--blueLight)', bg: 'rgba(56,189,248,.16)' };
+
     case 'NAO_ATENDEU':
-    case 'SEM_RESPOSTA':
+    case 'CAIXA_POSTAL': // agrupado visualmente
       return { bd: 'var(--danger)', bg: 'rgba(239,68,68,.14)' };
+
     default:
       return { bd: 'var(--border)', bg: 'rgba(255,255,255,.06)' };
   }
@@ -183,13 +190,16 @@ function statusVars(s: Status) {
 function rowBg(status: Status) {
   switch (status) {
     case 'NAO_ATENDEU':
-    case 'SEM_RESPOSTA':
+    case 'CAIXA_POSTAL':
       return 'rgba(239,68,68,.16)';
     case 'OUTRA_CIDADE':
-    case 'CAIXA_POSTAL':
       return 'rgba(245,158,11,.16)';
     case 'ATENDEU':
       return 'rgba(34,197,94,.16)';
+    case 'LIGAR_MAIS_TARDE':
+      return 'rgba(30,58,138,.16)';
+    case 'NUMERO_NAO_EXISTE':
+      return 'rgba(56,189,248,.14)';
     default:
       return 'transparent';
   }
@@ -276,42 +286,49 @@ function pickKey(obj: Record<string, string>, keys: string[]) {
   return '';
 }
 
+function toUpperTrim(v: string) {
+  return String(v || '').trim().toUpperCase();
+}
+
+function sanitizeStatus(raw: string): Status {
+  const s = toUpperTrim(raw);
+
+  // aceita também legados
+  if (s === 'SEM_RESPOSTA') return 'LIGAR_MAIS_TARDE';
+
+  if (
+    s === 'PENDENTE' ||
+    s === 'ATENDEU' ||
+    s === 'OUTRA_CIDADE' ||
+    s === 'NAO_ATENDEU' ||
+    s === 'CAIXA_POSTAL' ||
+    s === 'LIGAR_MAIS_TARDE' ||
+    s === 'NUMERO_NAO_EXISTE'
+  )
+    return s as Status;
+
+  return 'PENDENTE';
+}
+
 function csvToAppRows(csv: string, parteFallback = 'P01'): { parte: string; rows: Row[] } {
   const { rows } = parseCsv(csv);
   if (!rows.length) return { parte: parteFallback, rows: [] };
 
   const first = rows[0];
-  const parte =
-    pickKey(first, ['Nº PESQ.', 'N_PESQ', 'N PESQ', 'N PESQ.']) ||
-    parteFallback;
+  const parte = pickKey(first, ['Nº PESQ.', 'N_PESQ', 'N PESQ', 'N PESQ.']) || parteFallback;
 
   const out: Row[] = rows.map((r, idx) => {
     const IDP = pickKey(r, ['IDP', 'Idp', 'idp', 'ID']) || String(idx + 1);
+
     const ESTADO = pickKey(r, ['ESTADO', 'UF', 'Uf']) || '';
     const CIDADE = pickKey(r, ['CIDADE', 'Cidade']) || '';
-    const REGIAO_CIDADE =
-      pickKey(r, ['REGIAO_CIDADE', 'REGIÃO CIDADE', 'REGIAO CIDADE', 'REGIÃO', 'REGIAO']) || '';
+    const REGIAO_CIDADE = pickKey(r, ['REGIAO_CIDADE', 'REGIÃO CIDADE', 'REGIAO CIDADE', 'REGIÃO', 'REGIAO']) || '';
 
     const TF1 = pickKey(r, ['TF1', 'TEL1', 'TELEFONE1', 'TELEFONE 1']) || '';
     const TF2 = pickKey(r, ['TF2', 'TEL2', 'TELEFONE2', 'TELEFONE 2']) || '';
-    const TF3 = pickKey(r, ['TF3', 'TEL3', 'TELEFONE3', 'TELEFONE 3']) || '';
-    const TF4 = pickKey(r, ['TF4', 'TEL4', 'TELEFONE4', 'TELEFONE 4']) || '';
 
-    const DIA_PESQ = pickKey(r, ['DIA PESQ.', 'DIA PESQ', 'DIA_PESQ', 'DATA', 'DIA']) || '';
-    const N_PESQ = pickKey(r, ['Nº PESQ.', 'N_PESQ', 'N PESQ', 'N PESQ.']) || parte;
-
-    // ✅ Lê STATUS/OBSERVACAO se vier no CSV
-    const statusCsv = (pickKey(r, ['STATUS', 'Status']) || 'PENDENTE').trim().toUpperCase() as Status;
+    const statusCsv = pickKey(r, ['STATUS', 'Status']) || 'PENDENTE';
     const obsCsv = pickKey(r, ['OBSERVACAO', 'OBSERVAÇÃO', 'Observacao', 'Observação']) || '';
-
-    const safeStatus: Status =
-      statusCsv === 'ATENDEU' ||
-        statusCsv === 'OUTRA_CIDADE' ||
-        statusCsv === 'NAO_ATENDEU' ||
-        statusCsv === 'CAIXA_POSTAL' ||
-        statusCsv === 'SEM_RESPOSTA'
-        ? statusCsv
-        : 'PENDENTE';
 
     return {
       id: `row-${idx + 1}`,
@@ -322,11 +339,7 @@ function csvToAppRows(csv: string, parteFallback = 'P01'): { parte: string; rows
       REGIAO_CIDADE: String(REGIAO_CIDADE || ''),
       TF1: String(TF1 || ''),
       TF2: String(TF2 || ''),
-      TF3: String(TF3 || ''),
-      TF4: String(TF4 || ''),
-      N_PESQ: String(N_PESQ || ''),
-      DIA_PESQ: String(DIA_PESQ || ''),
-      STATUS: safeStatus,
+      STATUS: sanitizeStatus(statusCsv),
       OBSERVACAO: String(obsCsv || ''),
     };
   });
@@ -345,12 +358,12 @@ function StatusPill({ status }: { status: Status }) {
         display: 'inline-flex',
         alignItems: 'center',
         gap: 6,
-        padding: '3px 7px',
+        padding: '4px 9px',
         borderRadius: 999,
         border: `1px solid ${c.bd}`,
         background: c.bg,
         fontWeight: 900,
-        fontSize: 9,
+        fontSize: 10,
         color: 'var(--text)',
         whiteSpace: 'nowrap',
       }}
@@ -367,7 +380,7 @@ function ActionButton({
   onClick,
 }: {
   active: boolean;
-  kind: 'danger' | 'warning' | 'success';
+  kind: 'danger' | 'warning' | 'success' | 'blueDark' | 'blueLight';
   children: React.ReactNode;
   onClick: () => void;
 }) {
@@ -376,7 +389,11 @@ function ActionButton({
       ? { border: '1px solid rgba(239,68,68,.45)', background: 'rgba(239,68,68,.14)' }
       : kind === 'warning'
         ? { border: '1px solid rgba(245,158,11,.45)', background: 'rgba(245,158,11,.14)' }
-        : { border: '1px solid rgba(34,197,94,.45)', background: 'rgba(34,197,94,.14)' };
+        : kind === 'blueDark'
+          ? { border: '1px solid rgba(30,58,138,.55)', background: 'rgba(30,58,138,.18)' }
+          : kind === 'blueLight'
+            ? { border: '1px solid rgba(56,189,248,.55)', background: 'rgba(56,189,248,.16)' }
+            : { border: '1px solid rgba(34,197,94,.45)', background: 'rgba(34,197,94,.14)' };
 
   return (
     <button
@@ -417,10 +434,10 @@ function MiniTel({
         border: '1px solid var(--border)',
         background: disabled ? 'var(--surface)' : 'var(--primary)',
         color: disabled ? 'var(--text-muted)' : 'var(--primary-text)',
-        padding: '5px 8px',
+        padding: '6px 10px',
         borderRadius: 8,
-        fontSize: 10,
-        fontWeight: 800,
+        fontSize: 11,
+        fontWeight: 900,
         cursor: disabled ? 'not-allowed' : 'pointer',
         whiteSpace: 'nowrap',
       }}
@@ -438,30 +455,30 @@ function RowActions({
 }: {
   row: Row;
   onToggleStatus: (next: Exclude<Status, 'PENDENTE'>) => void;
-  onCall: (which: 'TF1' | 'TF2' | 'TF3' | 'TF4') => void;
+  onCall: (which: 'TF1' | 'TF2') => void;
 }) {
   const tf1 = safeTel(row.TF1);
   const tf2 = safeTel(row.TF2);
-  const tf3 = safeTel(row.TF3);
-  const tf4 = safeTel(row.TF4);
+
+  const isNaoAtendeuOuCaixa = row.STATUS === 'NAO_ATENDEU' || row.STATUS === 'CAIXA_POSTAL';
 
   return (
     <div style={styles.actionsInline}>
       <div style={styles.inlineGroup}>
-        <ActionButton active={row.STATUS === 'NAO_ATENDEU'} kind="danger" onClick={() => onToggleStatus('NAO_ATENDEU')}>
-          🔴 Não atendeu
+        <ActionButton active={isNaoAtendeuOuCaixa} kind="danger" onClick={() => onToggleStatus('NAO_ATENDEU')}>
+          🔴 Não atendeu/caixa postal
         </ActionButton>
 
         <ActionButton active={row.STATUS === 'OUTRA_CIDADE'} kind="warning" onClick={() => onToggleStatus('OUTRA_CIDADE')}>
           🟠 Outra cidade
         </ActionButton>
 
-        <ActionButton active={row.STATUS === 'CAIXA_POSTAL'} kind="warning" onClick={() => onToggleStatus('CAIXA_POSTAL')}>
-          🟠 Caixa postal
+        <ActionButton active={row.STATUS === 'NUMERO_NAO_EXISTE'} kind="blueLight" onClick={() => onToggleStatus('NUMERO_NAO_EXISTE')}>
+          🔵 Número não existe
         </ActionButton>
 
-        <ActionButton active={row.STATUS === 'SEM_RESPOSTA'} kind="danger" onClick={() => onToggleStatus('SEM_RESPOSTA')}>
-          🔴 Sem resposta
+        <ActionButton active={row.STATUS === 'LIGAR_MAIS_TARDE'} kind="blueDark" onClick={() => onToggleStatus('LIGAR_MAIS_TARDE')}>
+          🟦 Ligar mais tarde
         </ActionButton>
 
         <ActionButton active={row.STATUS === 'ATENDEU'} kind="success" onClick={() => onToggleStatus('ATENDEU')}>
@@ -472,8 +489,6 @@ function RowActions({
       <div style={styles.inlineGroup}>
         <MiniTel label="TF1" value={row.TF1} disabled={!tf1} onClick={() => onCall('TF1')} />
         <MiniTel label="TF2" value={row.TF2} disabled={!tf2} onClick={() => onCall('TF2')} />
-        <MiniTel label="TF3" value={row.TF3} disabled={!tf3} onClick={() => onCall('TF3')} />
-        <MiniTel label="TF4" value={row.TF4} disabled={!tf4} onClick={() => onCall('TF4')} />
       </div>
     </div>
   );
@@ -486,13 +501,17 @@ function FragmentRow({
   onToggleExpand,
   onToggleStatus,
   onCall,
+  geoCols,
+  onCopy,
 }: {
   row: Row;
   isExpanded: boolean;
   baseBg: string;
   onToggleExpand: () => void;
   onToggleStatus: (next: Exclude<Status, 'PENDENTE'>) => void;
-  onCall: (which: 'TF1' | 'TF2' | 'TF3' | 'TF4') => void;
+  onCall: (which: 'TF1' | 'TF2') => void;
+  geoCols: { estado: boolean; cidade: boolean; regiao: boolean };
+  onCopy: (label: string, value: string) => void;
 }) {
   const selectedBg = 'rgba(255,255,255,.07)';
 
@@ -509,24 +528,64 @@ function FragmentRow({
         <td style={styles.td}>
           <StatusPill status={row.STATUS} />
         </td>
-        <td style={styles.td} title={`LINE ${row.LINE}`}>
+
+        <td
+          style={{ ...styles.td, cursor: 'copy' }}
+          title="Clique para copiar IDP"
+          onClick={(e) => {
+            e.stopPropagation();
+            onCopy('IDP', row.IDP);
+          }}
+        >
           {row.IDP}
-          <span style={{ color: 'var(--text-muted)', marginLeft: 6, fontSize: 9 }}>#{row.LINE}</span>
         </td>
-        <td style={styles.td}>{row.ESTADO || '—'}</td>
-        <td style={styles.td}>{row.CIDADE || '—'}</td>
-        <td style={styles.td}>{row.REGIAO_CIDADE || '—'}</td>
+
+        {geoCols.estado ? (
+          <td
+            style={{ ...styles.td, cursor: 'copy' }}
+            title="Clique para copiar Estado"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCopy('Estado', row.ESTADO);
+            }}
+          >
+            {row.ESTADO || '—'}
+          </td>
+        ) : null}
+
+        {geoCols.cidade ? (
+          <td
+            style={{ ...styles.td, cursor: 'copy' }}
+            title="Clique para copiar Cidade"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCopy('Cidade', row.CIDADE);
+            }}
+          >
+            {row.CIDADE || '—'}
+          </td>
+        ) : null}
+
+        {geoCols.regiao ? (
+          <td
+            style={{ ...styles.td, cursor: 'copy' }}
+            title="Clique para copiar Região"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCopy('Região', row.REGIAO_CIDADE);
+            }}
+          >
+            {row.REGIAO_CIDADE || '—'}
+          </td>
+        ) : null}
+
         <td style={styles.td}>{row.TF1 || '—'}</td>
         <td style={styles.td}>{row.TF2 || '—'}</td>
-        <td style={styles.td}>{row.TF3 || '—'}</td>
-        <td style={styles.td}>{row.TF4 || '—'}</td>
-        <td style={styles.td}>{row.N_PESQ || '—'}</td>
-        <td style={styles.td}>{row.DIA_PESQ || '—'}</td>
       </tr>
 
       {isExpanded ? (
         <tr style={{ background: 'var(--surface-2)' }}>
-          <td colSpan={11} style={{ padding: 0, borderBottom: '1px solid var(--border)' }}>
+          <td colSpan={2 + (geoCols.estado ? 1 : 0) + (geoCols.cidade ? 1 : 0) + (geoCols.regiao ? 1 : 0) + 2} style={{ padding: 0, borderBottom: '1px solid var(--border)' }}>
             <RowActions row={row} onToggleStatus={onToggleStatus} onCall={onCall} />
           </td>
         </tr>
@@ -534,7 +593,6 @@ function FragmentRow({
     </>
   );
 }
-
 // =========================
 // MAIN PAGE
 // =========================
@@ -551,12 +609,16 @@ function MiniAppTabela() {
   const [allRows, setAllRows] = useState<Row[]>([]);
   const [parte, setParte] = useState<string>('');
 
-  const [q, setQ] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
+  const [estadoFilter, setEstadoFilter] = useState<string>('TODOS');
+  const [cidadeFilter, setCidadeFilter] = useState<string>('TODAS');
   const [regiaoFilter, setRegiaoFilter] = useState<string>('TODAS');
 
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<string>('');
+
+  // ✅ copiar
+  const [toast, setToast] = useState<string>('');
 
   // ✅ alterações pendentes (LINE => {STATUS, OBSERVACAO})
   const [dirty, setDirty] = useState<Record<string, { STATUS: Status; OBSERVACAO: string }>>({});
@@ -629,19 +691,64 @@ function MiniAppTabela() {
     setError('');
   }, [payload]);
 
-  const regioesDisponiveis = useMemo(() => {
-    const s = new Set<string>();
-    for (const r of allRows) s.add(String(r.REGIAO_CIDADE || '').trim() || '—');
-    return Array.from(s).sort((a, b) => (a === '—' ? 1 : b === '—' ? -1 : a.localeCompare(b)));
+  // =========================
+  // Detecta se geo cols estão vazias (para ocultar)
+  // =========================
+  const geoCols = useMemo(() => {
+    const hasEstado = allRows.some((r) => String(r.ESTADO || '').trim().length > 0);
+    const hasCidade = allRows.some((r) => String(r.CIDADE || '').trim().length > 0);
+    const hasRegiao = allRows.some((r) => String(r.REGIAO_CIDADE || '').trim().length > 0);
+    return { estado: hasEstado, cidade: hasCidade, regiao: hasRegiao };
   }, [allRows]);
 
-  const filteredRows = useMemo(() => {
-    const qq = norm(q);
+  const estadosDisponiveis = useMemo(() => {
+    if (!geoCols.estado) return [];
+    const s = new Set<string>();
+    for (const r of allRows) {
+      const v = String(r.ESTADO || '').trim();
+      if (v) s.add(v);
+    }
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [allRows, geoCols.estado]);
 
+  const cidadesDisponiveis = useMemo(() => {
+    if (!geoCols.cidade) return [];
+    const s = new Set<string>();
+    for (const r of allRows) {
+      const v = String(r.CIDADE || '').trim();
+      if (v) s.add(v);
+    }
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [allRows, geoCols.cidade]);
+
+  const regioesDisponiveis = useMemo(() => {
+    if (!geoCols.regiao) return [];
+    const s = new Set<string>();
+    for (const r of allRows) {
+      const v = String(r.REGIAO_CIDADE || '').trim();
+      if (v) s.add(v);
+    }
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [allRows, geoCols.regiao]);
+
+  // =========================
+  // Filtragem (sem busca textual)
+  // =========================
+  const filteredRows = useMemo(() => {
     return allRows.filter((r) => {
-      if (regiaoFilter !== 'TODAS') {
-        const rr = String(r.REGIAO_CIDADE || '').trim() || '—';
-        if (rr !== regiaoFilter) return false;
+      if (geoCols.estado && estadoFilter !== 'TODOS') {
+        const v = String(r.ESTADO || '').trim();
+        if (v !== estadoFilter) return false;
+      }
+
+      if (geoCols.cidade && cidadeFilter !== 'TODAS') {
+        const v = String(r.CIDADE || '').trim();
+        if (v !== cidadeFilter) return false;
+      }
+
+      if (geoCols.regiao && regiaoFilter !== 'TODAS') {
+        const v = String(r.REGIAO_CIDADE || '').trim();
+        if (v !== regiaoFilter) return false;
       }
 
       if (statusFilter === 'PENDENTES') {
@@ -652,18 +759,11 @@ function MiniAppTabela() {
         if (r.STATUS !== statusFilter) return false;
       }
 
-      if (!qq) return true;
-
-      const hay = norm(
-        [r.LINE, r.IDP, r.ESTADO, r.CIDADE, r.REGIAO_CIDADE, r.TF1, r.TF2, r.TF3, r.TF4, r.N_PESQ, r.DIA_PESQ, r.STATUS].join(
-          ' '
-        )
-      );
-      return hay.includes(qq);
+      return true;
     });
-  }, [allRows, q, statusFilter, regiaoFilter]);
+  }, [allRows, statusFilter, estadoFilter, cidadeFilter, regiaoFilter, geoCols]);
 
-  useEffect(() => setPage(1), [q, statusFilter, regiaoFilter]);
+  useEffect(() => setPage(1), [statusFilter, estadoFilter, cidadeFilter, regiaoFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const pageRows = useMemo(() => {
@@ -700,8 +800,6 @@ function MiniAppTabela() {
   // =========================
   useEffect(() => {
     const entregaId = getTelegramId();
-
-    // ✅ parte: prioriza URL; se não tiver, usa a do payload/app
     const parteUrl = getParteFromUrl() || parte || (payload?.[0]?.chave_parte ? String(payload[0].chave_parte) : '');
 
     if (!entregaId || !parteUrl) return;
@@ -726,6 +824,7 @@ function MiniAppTabela() {
         const resp = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
           body: JSON.stringify({
             telegram_id: entregaId,
             chave_parte: parteUrl,
@@ -741,8 +840,15 @@ function MiniAppTabela() {
         setDirty({});
         setLastSavedAt(new Date().toLocaleTimeString());
       } catch (e: any) {
-        console.error(e);
-        setSaveError(String(e?.message || e));
+        const msg = String(e?.message || e);
+        // ✅ "Failed to fetch" normalmente é CORS / endpoint inválido / rede
+        if (msg.toLowerCase().includes('failed to fetch')) {
+          setSaveError(
+            'Failed to fetch — normalmente é CORS ou endpoint /parte/salvar inexistente no n8n. Verifique: CORS (Access-Control-Allow-Origin), SSL e se a rota /parte/salvar está publicada.'
+          );
+        } else {
+          setSaveError(msg);
+        }
       } finally {
         setSaving(false);
       }
@@ -751,31 +857,68 @@ function MiniAppTabela() {
     return () => clearTimeout(t);
   }, [saveTick, dirty, parte, payload]);
 
-  function callPhoneForRow(row: Row, which: 'TF1' | 'TF2' | 'TF3' | 'TF4') {
+  function callPhoneForRow(row: Row, which: 'TF1' | 'TF2') {
     const tel = safeTel(row[which]);
     if (!tel) return;
     window.location.href = `tel:${tel}`;
   }
 
+  async function copyToClipboard(label: string, value: string) {
+    const v = String(value || '').trim();
+    if (!v) return;
+
+    try {
+      await navigator.clipboard.writeText(v);
+      setToast(`Copiado (${label}): ${v}`);
+      setTimeout(() => setToast(''), 1600);
+    } catch {
+      // fallback
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = v;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        setToast(`Copiado (${label}): ${v}`);
+        setTimeout(() => setToast(''), 1600);
+      } catch {
+        setToast('Não foi possível copiar.');
+        setTimeout(() => setToast(''), 1600);
+      }
+    }
+  }
+
   // contagens
   const pendentes = useMemo(() => filteredRows.filter((r) => r.STATUS === 'PENDENTE').length, [filteredRows]);
   const concluidos = useMemo(() => filteredRows.filter((r) => r.STATUS !== 'PENDENTE').length, [filteredRows]);
-  const atendeu = useMemo(() => filteredRows.filter((r) => r.STATUS === 'ATENDEU').length, [filteredRows]);
-  const outraCidade = useMemo(() => filteredRows.filter((r) => r.STATUS === 'OUTRA_CIDADE').length, [filteredRows]);
-  const naoAtendeu = useMemo(() => filteredRows.filter((r) => r.STATUS === 'NAO_ATENDEU').length, [filteredRows]);
-  const caixaPostal = useMemo(() => filteredRows.filter((r) => r.STATUS === 'CAIXA_POSTAL').length, [filteredRows]);
-  const semResposta = useMemo(() => filteredRows.filter((r) => r.STATUS === 'SEM_RESPOSTA').length, [filteredRows]);
 
   const hasData = allRows.length > 0;
 
-  // dicas de URL (pra você testar)
   const hintLink = useMemo(() => {
     const base = `${window.location.origin}${window.location.pathname}#/?`;
-    // exemplo genérico:
-    // csvId -> carrega a parte
-    // entregaId/parte -> salva
     return `${base}csvId=SEU_CSVID&entregaId=SEU_TELEGRAM_ID&parte=P03`;
   }, []);
+
+  function PaginationControls() {
+    return (
+      <div style={styles.nav}>
+        <div style={styles.pill}>
+          Página <b>{page}</b>/<b>{Math.max(1, totalPages)}</b>
+        </div>
+        <button style={styles.btn} onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+          ⬅️
+        </button>
+        <button
+          style={{ ...styles.btn, ...styles.btnPrimary }}
+          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          disabled={page >= totalPages}
+        >
+          ➡️
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: 12 }}>
@@ -787,9 +930,7 @@ function MiniAppTabela() {
             <div style={{ fontWeight: 900, fontSize: 13 }}>{loading ? 'Carregando…' : 'Aguardando dados…'}</div>
 
             <div style={{ color: 'var(--text-muted)', marginTop: 6, fontSize: 11 }}>
-              {loading
-                ? 'Buscando o CSV no servidor (n8n → Supabase).'
-                : 'Abra com csvId para carregar. Exemplo:'}
+              {loading ? 'Buscando o CSV no servidor (n8n → Supabase).' : 'Abra com csvId para carregar. Exemplo:'}
             </div>
 
             {!loading && (
@@ -826,8 +967,9 @@ function MiniAppTabela() {
               <div style={styles.h1}>
                 Atendimento {parte ? <span style={{ color: 'var(--text-muted)' }}>• {parte}</span> : null}
               </div>
+
               <div style={styles.sub}>
-                Registros: <b>{filteredRows.length}</b> (filtrado) • Concluídos: <b>{concluidos}</b>
+                Registros: <b>{filteredRows.length}</b> (filtrado) • Concluídos: <b>{concluidos}</b> • Pendentes: <b>{pendentes}</b>
               </div>
 
               <div style={{ ...styles.sub, marginTop: 4 }}>
@@ -847,28 +989,19 @@ function MiniAppTabela() {
               </div>
 
               {saveError && (
-                <div
-                  style={{
-                    marginTop: 6,
-                    padding: 6,
-                    border: '1px solid var(--danger)',
-                    borderRadius: 8,
-                    fontSize: 11,
-                  }}
-                >
+                <div style={{ marginTop: 6, padding: 8, border: '1px solid var(--danger)', borderRadius: 8, fontSize: 11 }}>
                   ❌ {saveError}
+                </div>
+              )}
+
+              {toast && (
+                <div style={{ marginTop: 6, padding: 8, border: '1px solid rgba(255,255,255,.18)', borderRadius: 8, fontSize: 11 }}>
+                  ✅ {toast}
                 </div>
               )}
             </div>
 
             <div style={styles.filtersRow}>
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Buscar (IDP, cidade, telefone, line...)"
-                style={styles.input}
-              />
-
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} style={styles.select}>
                 <option value="TODOS">Status: Todos</option>
                 <option value="PENDENTES">Status: Pendentes</option>
@@ -876,82 +1009,66 @@ function MiniAppTabela() {
 
                 <option value="ATENDEU">Status: Atendeu</option>
                 <option value="OUTRA_CIDADE">Status: Outra cidade</option>
-                <option value="NAO_ATENDEU">Status: Não atendeu</option>
-
-                <option value="CAIXA_POSTAL">Status: Caixa postal</option>
-                <option value="SEM_RESPOSTA">Status: Sem resposta</option>
+                <option value="NAO_ATENDEU">Status: Não atendeu/caixa postal</option>
+                <option value="NUMERO_NAO_EXISTE">Status: Número não existe</option>
+                <option value="LIGAR_MAIS_TARDE">Status: Ligar mais tarde</option>
               </select>
 
-              <select value={regiaoFilter} onChange={(e) => setRegiaoFilter(e.target.value)} style={styles.select}>
-                <option value="TODAS">Região: Todas</option>
-                {regioesDisponiveis.map((rg) => (
-                  <option key={rg} value={rg}>
-                    Região: {rg}
-                  </option>
-                ))}
-              </select>
+              {geoCols.estado ? (
+                <select value={estadoFilter} onChange={(e) => setEstadoFilter(e.target.value)} style={styles.select}>
+                  <option value="TODOS">Estado: Todos</option>
+                  {estadosDisponiveis.map((uf) => (
+                    <option key={uf} value={uf}>
+                      Estado: {uf}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+
+              {geoCols.cidade ? (
+                <select value={cidadeFilter} onChange={(e) => setCidadeFilter(e.target.value)} style={styles.select}>
+                  <option value="TODAS">Cidade: Todas</option>
+                  {cidadesDisponiveis.map((c) => (
+                    <option key={c} value={c}>
+                      Cidade: {c}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+
+              {geoCols.regiao ? (
+                <select value={regiaoFilter} onChange={(e) => setRegiaoFilter(e.target.value)} style={styles.select}>
+                  <option value="TODAS">Região: Todas</option>
+                  {regioesDisponiveis.map((rg) => (
+                    <option key={rg} value={rg}>
+                      Região: {rg}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
 
               <button
                 style={styles.btn}
                 onClick={() => {
-                  setQ('');
                   setStatusFilter('TODOS');
+                  setEstadoFilter('TODOS');
+                  setCidadeFilter('TODAS');
                   setRegiaoFilter('TODAS');
                 }}
               >
-                Limpar
+                Limpar filtros
               </button>
             </div>
 
-            <div style={styles.pills}>
-              <div style={styles.pill}>
-                <span style={{ ...styles.dot, background: 'rgba(255,255,255,.55)' }} />
-                Pendentes: <b>{pendentes}</b>
-              </div>
-              <div style={styles.pill}>
-                <span style={{ ...styles.dot, background: 'var(--success)' }} />
-                Atendeu: <b>{atendeu}</b>
-              </div>
-              <div style={styles.pill}>
-                <span style={{ ...styles.dot, background: 'var(--warning)' }} />
-                Outra cidade: <b>{outraCidade}</b>
-              </div>
-              <div style={styles.pill}>
-                <span style={{ ...styles.dot, background: 'var(--warning)' }} />
-                Caixa postal: <b>{caixaPostal}</b>
-              </div>
-              <div style={styles.pill}>
-                <span style={{ ...styles.dot, background: 'var(--danger)' }} />
-                Não atendeu: <b>{naoAtendeu}</b>
-              </div>
-              <div style={styles.pill}>
-                <span style={{ ...styles.dot, background: 'var(--danger)' }} />
-                Sem resposta: <b>{semResposta}</b>
-              </div>
-            </div>
-
-            <div style={styles.nav}>
-              <div style={styles.pill}>
-                Página <b>{page}</b>/<b>{Math.max(1, totalPages)}</b>
-              </div>
-              <button style={styles.btn} onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
-                ⬅️
-              </button>
-              <button
-                style={{ ...styles.btn, ...styles.btnPrimary }}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
-              >
-                ➡️
-              </button>
-            </div>
+            {/* Paginação em cima */}
+            <PaginationControls />
           </div>
 
           <div style={styles.card}>
             <div style={styles.cardHeader}>
               <div>
                 <div style={styles.cardTitle}>Tabela (20 por página)</div>
-                <div style={styles.cardSub}>Clique em uma linha para expandir e ver os botões abaixo dela.</div>
+                <div style={styles.cardSub}>Clique na linha para expandir. Clique em IDP/Estado/Cidade/Região para copiar.</div>
               </div>
             </div>
 
@@ -959,13 +1076,18 @@ function MiniAppTabela() {
               <table style={styles.table}>
                 <thead>
                   <tr>
-                    {['STATUS', 'IDP', 'ESTADO', 'CIDADE', 'REGIÃO', 'TF1', 'TF2', 'TF3', 'TF4', 'Nº PESQ.', 'DIA'].map((h) => (
-                      <th key={h} style={styles.th}>
-                        {h}
-                      </th>
-                    ))}
+                    <th style={styles.th}>STATUS</th>
+                    <th style={styles.th}>IDP</th>
+
+                    {geoCols.estado ? <th style={styles.th}>ESTADO</th> : null}
+                    {geoCols.cidade ? <th style={styles.th}>CIDADE</th> : null}
+                    {geoCols.regiao ? <th style={styles.th}>REGIÃO</th> : null}
+
+                    <th style={styles.th}>TF1</th>
+                    <th style={styles.th}>TF2</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {pageRows.map((r) => {
                     const isExpanded = expandedId === r.id;
@@ -977,16 +1099,18 @@ function MiniAppTabela() {
                         row={r}
                         isExpanded={isExpanded}
                         baseBg={baseBg}
+                        geoCols={geoCols}
                         onToggleExpand={() => setExpandedId((cur) => (cur === r.id ? '' : r.id))}
                         onToggleStatus={(next) => toggleStatusForRow(r, next)}
                         onCall={(which) => callPhoneForRow(r, which)}
+                        onCopy={(label, value) => copyToClipboard(label, value)}
                       />
                     );
                   })}
 
                   {pageRows.length === 0 ? (
                     <tr>
-                      <td colSpan={11} style={{ padding: 14, color: 'var(--text-muted)', fontSize: 11 }}>
+                      <td colSpan={2 + (geoCols.estado ? 1 : 0) + (geoCols.cidade ? 1 : 0) + (geoCols.regiao ? 1 : 0) + 2} style={{ padding: 14, color: 'var(--text-muted)', fontSize: 12 }}>
                         Nenhum registro encontrado com esses filtros.
                       </td>
                     </tr>
@@ -996,17 +1120,22 @@ function MiniAppTabela() {
             </div>
 
             <div style={styles.footerHint}>✅ Clique no mesmo botão novamente para voltar a PENDENTE.</div>
+
+            {/* Paginação em baixo */}
+            <div style={{ padding: 10, borderTop: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+              <PaginationControls />
+            </div>
           </div>
 
           <style>{`
             @media (max-width: 1024px){
-              table { min-width: 860px !important; }
+              table { min-width: 760px !important; }
             }
             @media (max-width: 820px){
-              table { min-width: 780px !important; }
+              table { min-width: 720px !important; }
             }
             @media (max-width: 680px){
-              table { min-width: 720px !important; }
+              table { min-width: 680px !important; }
             }
           `}</style>
         </>
@@ -1046,67 +1175,49 @@ const styles: Record<string, React.CSSProperties> = {
     flexWrap: 'wrap',
     marginBottom: 10,
   },
-  h1: { fontWeight: 900, fontSize: 13, color: 'var(--text)' },
-  sub: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 },
+  h1: { fontWeight: 900, fontSize: 14, color: 'var(--text)' },
+  sub: { fontSize: 12, color: 'var(--text-muted)', marginTop: 4 },
 
   filtersRow: {
     display: 'flex',
     gap: 8,
     flexWrap: 'wrap',
     alignItems: 'center',
-    maxWidth: 760,
-  },
-
-  input: {
-    border: '1px solid var(--border)',
-    background: 'var(--surface-2)',
-    color: 'var(--text)',
-    padding: '8px 10px',
-    borderRadius: 10,
-    fontSize: 11,
-    outline: 'none',
-    minWidth: 220,
+    maxWidth: 860,
   },
 
   select: {
     border: '1px solid var(--border)',
     background: 'var(--surface-2)',
     color: 'var(--text)',
-    padding: '8px 10px',
+    padding: '9px 10px',
     borderRadius: 10,
-    fontSize: 11,
+    fontSize: 12,
     outline: 'none',
   },
 
-  pills: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
   nav: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
   pill: {
     border: '1px solid var(--border)',
     background: 'var(--surface-2)',
     color: 'var(--text)',
-    padding: '6px 8px',
+    padding: '7px 9px',
     borderRadius: 999,
-    fontSize: 11,
+    fontSize: 12,
     display: 'flex',
     gap: 6,
     alignItems: 'center',
     whiteSpace: 'nowrap',
-  },
-  dot: {
-    width: 9,
-    height: 9,
-    borderRadius: 999,
-    border: '1px solid var(--border)',
   },
 
   btn: {
     border: '1px solid var(--border)',
     background: 'var(--secondary)',
     color: 'var(--secondary-text)',
-    padding: '8px 10px',
+    padding: '9px 11px',
     borderRadius: 10,
     fontWeight: 900,
-    fontSize: 11,
+    fontSize: 12,
     cursor: 'pointer',
   },
   btnPrimary: {
@@ -1127,18 +1238,18 @@ const styles: Record<string, React.CSSProperties> = {
     borderBottom: '1px solid var(--border)',
     background: 'var(--surface-2)',
   },
-  cardTitle: { fontWeight: 900, fontSize: 12, color: 'var(--text)' },
-  cardSub: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 },
+  cardTitle: { fontWeight: 900, fontSize: 13, color: 'var(--text)' },
+  cardSub: { fontSize: 12, color: 'var(--text-muted)', marginTop: 4 },
 
   tableWrap: { overflow: 'auto' },
-  table: { width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 920 },
+  table: { width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 860 },
   th: {
     position: 'sticky',
     top: 0,
     background: 'var(--surface-2)',
     borderBottom: '1px solid var(--border)',
-    padding: '5px 7px',
-    fontSize: 10,
+    padding: '8px 10px',
+    fontSize: 12,
     textAlign: 'left',
     color: 'var(--text-muted)',
     whiteSpace: 'nowrap',
@@ -1146,22 +1257,23 @@ const styles: Record<string, React.CSSProperties> = {
   tr: { cursor: 'pointer' },
   td: {
     borderBottom: '1px solid var(--border)',
-    padding: '5px 7px',
-    fontSize: 10,
+    padding: '9px 10px',
+    fontSize: 12,
     color: 'var(--text)',
     whiteSpace: 'nowrap',
+    userSelect: 'text',
   },
 
   footerHint: {
     padding: 10,
     color: 'var(--text-muted)',
-    fontSize: 11,
+    fontSize: 12,
   },
 
   btnAction: {
-    padding: '5px 9px',
-    borderRadius: 8,
-    fontSize: 10,
+    padding: '7px 10px',
+    borderRadius: 10,
+    fontSize: 11,
     fontWeight: 900,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
@@ -1172,19 +1284,19 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   actionsInline: {
-    padding: 9,
+    padding: 10,
     borderTop: '1px solid var(--border)',
     background: 'var(--surface-2)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 10,
-    flexWrap: 'nowrap',
+    flexWrap: 'wrap',
   },
   inlineGroup: {
     display: 'flex',
     gap: 8,
-    flexWrap: 'nowrap',
+    flexWrap: 'wrap',
     alignItems: 'center',
   },
 };
