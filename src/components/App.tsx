@@ -1,12 +1,11 @@
 // App.tsx (arquivo completo)
-// ✅ Últimas mudanças aplicadas:
-// 1) Clique na linha -> abre MODAL com todos os botões (não expande abaixo).
-// 2) Remove "CONCLUÍDO • ..." do status. Status pill agora mostra só: PENDENTE, ATENDEU, OUTRA CIDADE • X, NÃO ATENDEU/CAIXA POSTAL, NÚMERO NÃO EXISTE, RETORNO • HH:MM.
-// 3) "Outra cidade" guarda e exibe "OUTRA_CIDADE - NOME" e mostra ao lado no status.
-// 4) Cor da linha selecionada (quando modal aberto) mais forte.
-// 5) Botão de copiar telefone: texto "COPIAR TF1" / "COPIAR TF2" (sem ícone prancheta).
-// 6) Removido copiar ao clicar no IDP na tabela (copiar só no botão do modal).
-// 7) Toast virou snackbar pequeno embaixo (fecha sozinho em 3s).
+// ✅ Mudanças novas aplicadas agora:
+// 1) Removido "CONCLUIDOS" de tudo (não existe mais esse status/filtro/texto).
+// 2) Ao selecionar um status (ATENDEU / NÃO ATENDEU / NÚMERO NÃO EXISTE / toggles) o modal de ações FECHA automaticamente.
+// 3) Para status com popup:
+//    - RETORNO: só fecha o modal de ações após CONFIRMAR (e fecha também se você "destoggle" retorno -> pendente).
+//    - OUTRA CIDADE: só fecha o modal de ações após CONFIRMAR (e fecha também se você "destoggle" outra cidade -> pendente).
+// 4) Copiar TF1/TF2/IDP e Ligar NÃO fecham o modal de ações.
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
@@ -41,7 +40,7 @@ type Row = {
   OBSERVACAO: string; // RETORNO - HH:MM | OUTRA_CIDADE - CIDADE | livre
 };
 
-type StatusFilter = 'TODOS' | 'PENDENTES' | 'CONCLUIDOS' | Status;
+type StatusFilter = 'TODOS' | 'PENDENTES' | Status;
 
 const PAGE_SIZE = 20;
 
@@ -274,7 +273,7 @@ function isOutraCidadeObs(obs: string) {
   return /^OUTRA_CIDADE(\s*[-–—].*)?$/i.test(String(obs || '').trim());
 }
 
-// ✅ status sem "CONCLUÍDO"
+// status pill
 function statusText(row: Row) {
   const s = row.STATUS;
 
@@ -607,7 +606,14 @@ function RowActionsModal({
         </div>
 
         <div style={{ padding: 12, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <ActionButton active={isNaoAtendeuOuCaixa} kind="warning" onClick={() => onToggleStatus('NAO_ATENDEU')}>
+          <ActionButton
+            active={isNaoAtendeuOuCaixa}
+            kind="warning"
+            onClick={() => {
+              onToggleStatus('NAO_ATENDEU');
+              onClose(); // ✅ fecha ao selecionar status
+            }}
+          >
             🟡 Não atendeu/caixa postal
           </ActionButton>
 
@@ -615,14 +621,26 @@ function RowActionsModal({
             active={row.STATUS === 'OUTRA_CIDADE'}
             kind="orange"
             onClick={() => {
-              if (row.STATUS !== 'OUTRA_CIDADE') onOpenOutraCidade();
-              onToggleStatus('OUTRA_CIDADE');
+              if (row.STATUS === 'OUTRA_CIDADE') {
+                onToggleStatus('OUTRA_CIDADE'); // toggle -> pendente
+                onClose(); // ✅ fecha ao destoggle
+                return;
+              }
+              // ✅ só abre popup; status será definido no Confirm do popup
+              onOpenOutraCidade();
             }}
           >
             🟠 Outra cidade
           </ActionButton>
 
-          <ActionButton active={row.STATUS === 'NUMERO_NAO_EXISTE'} kind="danger" onClick={() => onToggleStatus('NUMERO_NAO_EXISTE')}>
+          <ActionButton
+            active={row.STATUS === 'NUMERO_NAO_EXISTE'}
+            kind="danger"
+            onClick={() => {
+              onToggleStatus('NUMERO_NAO_EXISTE');
+              onClose(); // ✅ fecha ao selecionar status
+            }}
+          >
             🔴 Número não existe
           </ActionButton>
 
@@ -632,15 +650,24 @@ function RowActionsModal({
             onClick={() => {
               if (row.STATUS === 'RETORNO') {
                 onToggleStatus('RETORNO'); // toggle -> pendente
+                onClose(); // ✅ fecha ao destoggle
                 return;
               }
-              onOpenRetorno(); // só vira retorno ao confirmar (confirmRetorno seta status)
+              // ✅ só abre popup; status será definido no Confirm do popup
+              onOpenRetorno();
             }}
           >
             🟦 Retorno
           </ActionButton>
 
-          <ActionButton active={row.STATUS === 'ATENDEU'} kind="success" onClick={() => onToggleStatus('ATENDEU')}>
+          <ActionButton
+            active={row.STATUS === 'ATENDEU'}
+            kind="success"
+            onClick={() => {
+              onToggleStatus('ATENDEU');
+              onClose(); // ✅ fecha ao selecionar status
+            }}
+          >
             🟢 Atendeu
           </ActionButton>
         </div>
@@ -817,7 +844,6 @@ function MiniAppTabela() {
       }
 
       if (statusFilter === 'PENDENTES') return r.STATUS === 'PENDENTE';
-      if (statusFilter === 'CONCLUIDOS') return r.STATUS !== 'PENDENTE';
       if (statusFilter !== 'TODOS') return r.STATUS === statusFilter;
 
       return true;
@@ -884,6 +910,7 @@ function MiniAppTabela() {
     updateRow(row.id, { STATUS: 'RETORNO', OBSERVACAO: obs });
     markDirty(row, { STATUS: 'RETORNO', OBSERVACAO: obs });
     setRetornoModalOpen(false);
+    setActionsOpen(false); // ✅ fecha ações só após confirmar
   }
 
   function openOutraCidadePicker(row: Row) {
@@ -903,6 +930,7 @@ function MiniAppTabela() {
     updateRow(row.id, { STATUS: 'OUTRA_CIDADE', OBSERVACAO: obs });
     markDirty(row, { STATUS: 'OUTRA_CIDADE', OBSERVACAO: obs });
     setOutraCidadeModalOpen(false);
+    setActionsOpen(false); // ✅ fecha ações só após confirmar
   }
 
   function callPhoneForRow(row: Row, which: 'TF1' | 'TF2') {
@@ -968,7 +996,7 @@ function MiniAppTabela() {
   }, [saveTick, dirty]);
 
   const pendentes = useMemo(() => filteredRows.filter((r) => r.STATUS === 'PENDENTE').length, [filteredRows]);
-  const concluidos = useMemo(() => filteredRows.filter((r) => r.STATUS !== 'PENDENTE').length, [filteredRows]);
+  const tratados = useMemo(() => filteredRows.filter((r) => r.STATUS !== 'PENDENTE').length, [filteredRows]); // ✅ sem "concluídos"
   const hasData = allRows.length > 0;
 
   const hintLink = useMemo(() => {
@@ -1062,7 +1090,7 @@ function MiniAppTabela() {
               <div style={styles.h1}>Atendimento</div>
 
               <div style={styles.sub}>
-                Registros: <b>{filteredRows.length}</b> • Concluídos: <b>{concluidos}</b> • Pendentes: <b>{pendentes}</b>
+                Registros: <b>{filteredRows.length}</b> • Tratados: <b>{tratados}</b> • Pendentes: <b>{pendentes}</b>
               </div>
 
               <div style={{ ...styles.sub, marginTop: 6 }}>
@@ -1089,7 +1117,6 @@ function MiniAppTabela() {
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} style={styles.select}>
                 <option value="TODOS">Status: Todos</option>
                 <option value="PENDENTES">Status: Pendentes</option>
-                <option value="CONCLUIDOS">Status: Concluídos</option>
                 <option value="ATENDEU">Status: Atendeu</option>
                 <option value="OUTRA_CIDADE">Status: Outra cidade</option>
                 <option value="NAO_ATENDEU">Status: Não atendeu/caixa postal</option>
