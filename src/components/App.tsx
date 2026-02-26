@@ -7,7 +7,7 @@ type Status =
   | 'OUTRA_CIDADE'
   | 'ATENDEU'
   | 'CAIXA_POSTAL'
-  | 'LIGAR_MAIS_TARDE'
+  | 'RETORNO'
   | 'NUMERO_NAO_EXISTE';
 
 type PartePayload = {
@@ -28,7 +28,7 @@ type Row = {
   TF2: string;
 
   STATUS: Status;
-  OBSERVACAO: string;
+  OBSERVACAO: string; // usado para guardar "RETORNO - HH:MM" e "Outra cidade: X"
 };
 
 type StatusFilter = 'TODOS' | 'PENDENTES' | 'CONCLUIDOS' | Status;
@@ -39,39 +39,44 @@ const API_GET_ENTREGA = 'https://n8n.srv962474.hstgr.cloud/webhook/entregas';
 const API_SAVE_PARTE = 'https://n8n.srv962474.hstgr.cloud/webhook/parte/salvar';
 
 // =========================
-// THEME
+// THEME (invertido: fundo claro, texto escuro)
 // =========================
 const globalCss = `
 :root{
-  --bg: #000000;
-  --surface: #191919;
-  --surface-2: #1e1e1e;
-  --text: #FFFFFF;
-  --text-muted: #CFCFCF;
-  --border: #424242;
+  --bg: #FFFFFF;
+  --surface: #F3F4F6;
+  --surface-2: #FFFFFF;
+  --text: #000000;
+  --text-muted: #374151;
+  --border: #D1D5DB;
 
-  --primary: #FFFFFF;
-  --primary-text: #0B0B0B;
+  --primary: #000000;
+  --primary-text: #FFFFFF;
 
-  --secondary: #1A1A1A;
-  --secondary-text: #FFFFFF;
+  --secondary: #FFFFFF;
+  --secondary-text: #000000;
 
-  --success: #22C55E;
+  --success: #16A34A;
   --warning: #F59E0B;
   --danger:  #EF4444;
 
   --blueDark: #1E3A8A;
   --blueLight: #38BDF8;
 
-  --shadow: 0 10px 30px rgba(0,0,0,.35);
+  --shadow: 0 10px 30px rgba(0,0,0,.10);
   --radius: 15px;
+}
+
+html, body{
+  height: 100%;
 }
 
 body{
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background: linear-gradient(135deg, #000000 0%, #0a0a0a 100%);
+  background: linear-gradient(135deg, #FFFFFF 0%, #F3F4F6 100%);
   margin: 0;
   padding: 0;
+  color: var(--text);
 }
 *{ box-sizing: border-box; }
 button:disabled{ opacity: .55; cursor: not-allowed !important; }
@@ -103,13 +108,26 @@ function safeTel(v: string) {
   return String(v || '').trim().replace(/[^\d+]/g, '');
 }
 
+// 👇 só adiciona "0" na hora de ligar (não mexe na exibição/CSV)
+function telToDial(v: string) {
+  const digits = safeTel(v).replace(/[^\d]/g, '');
+  if (!digits) return '';
+  // se já tem 0 na frente, mantém; se começar com 55 etc, não força
+  if (digits.startsWith('0') || digits.startsWith('55')) return digits;
+  return `0${digits}`;
+}
+
 function toUpperTrim(v: string) {
   return String(v || '').trim().toUpperCase();
 }
 
 function sanitizeStatus(raw: string): Status {
   const s = toUpperTrim(raw);
-  if (s === 'SEM_RESPOSTA') return 'LIGAR_MAIS_TARDE';
+
+  // compat
+  if (s === 'SEM_RESPOSTA') return 'RETORNO';
+  if (s === 'LIGAR_MAIS_TARDE') return 'RETORNO';
+  if (s.startsWith('RETORNO')) return 'RETORNO';
 
   if (
     s === 'PENDENTE' ||
@@ -117,7 +135,7 @@ function sanitizeStatus(raw: string): Status {
     s === 'OUTRA_CIDADE' ||
     s === 'NAO_ATENDEU' ||
     s === 'CAIXA_POSTAL' ||
-    s === 'LIGAR_MAIS_TARDE' ||
+    s === 'RETORNO' ||
     s === 'NUMERO_NAO_EXISTE'
   )
     return s as Status;
@@ -233,30 +251,51 @@ function csvToRows(csv: string): Row[] {
   });
 }
 
-function statusText(s: Status) {
+function retornoLabelFromObs(obs: string) {
+  const t = String(obs || '').trim();
+  // aceita "RETORNO - HH:MM" ou "RETORNO HH:MM"
+  const m = t.match(/RETORNO\s*[-–—]?\s*(\d{1,2}:\d{2})/i);
+  if (!m) return '';
+  const hhmm = m[1];
+  return hhmm;
+}
+
+function statusText(row: Row) {
+  const s = row.STATUS;
+
   if (s === 'ATENDEU') return 'CONCLUÍDO • ATENDEU';
   if (s === 'OUTRA_CIDADE') return 'CONCLUÍDO • OUTRA CIDADE';
   if (s === 'NAO_ATENDEU' || s === 'CAIXA_POSTAL') return 'CONCLUÍDO • NÃO ATENDEU/CAIXA POSTAL';
-  if (s === 'LIGAR_MAIS_TARDE') return 'CONCLUÍDO • LIGAR MAIS TARDE';
   if (s === 'NUMERO_NAO_EXISTE') return 'CONCLUÍDO • NÚMERO NÃO EXISTE';
+
+  if (s === 'RETORNO') {
+    const hhmm = retornoLabelFromObs(row.OBSERVACAO);
+    return hhmm ? `RETORNO • ${hhmm}` : 'RETORNO';
+  }
+
   return 'PENDENTE';
 }
 
 function statusVars(s: Status) {
+  // pedidos:
+  // - não atendeu/caixa postal => amarelo
+  // - outra cidade => laranja
+  // - número não existe => vermelho
+  // - retorno => azul escuro (mantive)
   switch (s) {
     case 'ATENDEU':
-      return { bd: 'var(--success)', bg: 'rgba(34,197,94,.14)' };
+      return { bd: 'var(--success)', bg: 'rgba(22,163,74,.12)' };
     case 'OUTRA_CIDADE':
-      return { bd: 'var(--warning)', bg: 'rgba(245,158,11,.14)' };
-    case 'LIGAR_MAIS_TARDE':
-      return { bd: 'var(--blueDark)', bg: 'rgba(30,58,138,.18)' };
+      return { bd: 'var(--warning)', bg: 'rgba(245,158,11,.16)' }; // laranja
+    case 'RETORNO':
+      return { bd: 'var(--blueDark)', bg: 'rgba(30,58,138,.14)' };
     case 'NUMERO_NAO_EXISTE':
-      return { bd: 'var(--blueLight)', bg: 'rgba(56,189,248,.16)' };
+      return { bd: 'var(--danger)', bg: 'rgba(239,68,68,.14)' }; // vermelho
     case 'NAO_ATENDEU':
     case 'CAIXA_POSTAL':
-      return { bd: 'var(--danger)', bg: 'rgba(239,68,68,.14)' };
+      return { bd: 'var(--warning)', bg: 'rgba(245,158,11,.16)' }; // amarelo
     default:
-      return { bd: 'var(--border)', bg: 'rgba(255,255,255,.06)' };
+      return { bd: 'var(--border)', bg: 'rgba(0,0,0,.03)' };
   }
 }
 
@@ -264,15 +303,15 @@ function rowBg(status: Status) {
   switch (status) {
     case 'NAO_ATENDEU':
     case 'CAIXA_POSTAL':
-      return 'rgba(239,68,68,.16)';
+      return 'rgba(245,158,11,.14)'; // amarelo
     case 'OUTRA_CIDADE':
-      return 'rgba(245,158,11,.16)';
+      return 'rgba(245,158,11,.16)'; // laranja (mesmo warning)
     case 'ATENDEU':
-      return 'rgba(34,197,94,.16)';
-    case 'LIGAR_MAIS_TARDE':
-      return 'rgba(30,58,138,.16)';
+      return 'rgba(22,163,74,.14)';
+    case 'RETORNO':
+      return 'rgba(30,58,138,.10)';
     case 'NUMERO_NAO_EXISTE':
-      return 'rgba(56,189,248,.14)';
+      return 'rgba(239,68,68,.12)'; // vermelho
     default:
       return 'transparent';
   }
@@ -281,8 +320,8 @@ function rowBg(status: Status) {
 // =========================
 // UI
 // =========================
-function StatusPill({ status }: { status: Status }) {
-  const c = statusVars(status);
+function StatusPill({ row }: { row: Row }) {
+  const c = statusVars(row.STATUS);
   return (
     <span
       style={{
@@ -299,7 +338,7 @@ function StatusPill({ status }: { status: Status }) {
         whiteSpace: 'nowrap',
       }}
     >
-      {statusText(status)}
+      {statusText(row)}
     </span>
   );
 }
@@ -317,14 +356,14 @@ function ActionButton({
 }) {
   const base =
     kind === 'danger'
-      ? { border: '1px solid rgba(239,68,68,.45)', background: 'rgba(239,68,68,.14)' }
+      ? { border: '1px solid rgba(239,68,68,.45)', background: 'rgba(239,68,68,.12)', color: 'var(--text)' }
       : kind === 'warning'
-      ? { border: '1px solid rgba(245,158,11,.45)', background: 'rgba(245,158,11,.14)' }
+      ? { border: '1px solid rgba(245,158,11,.45)', background: 'rgba(245,158,11,.14)', color: 'var(--text)' }
       : kind === 'blueDark'
-      ? { border: '1px solid rgba(30,58,138,.55)', background: 'rgba(30,58,138,.18)' }
+      ? { border: '1px solid rgba(30,58,138,.45)', background: 'rgba(30,58,138,.12)', color: 'var(--text)' }
       : kind === 'blueLight'
-      ? { border: '1px solid rgba(56,189,248,.55)', background: 'rgba(56,189,248,.16)' }
-      : { border: '1px solid rgba(34,197,94,.45)', background: 'rgba(34,197,94,.14)' };
+      ? { border: '1px solid rgba(56,189,248,.45)', background: 'rgba(56,189,248,.12)', color: 'var(--text)' }
+      : { border: '1px solid rgba(22,163,74,.45)', background: 'rgba(22,163,74,.12)', color: 'var(--text)' };
 
   return (
     <button
@@ -387,8 +426,8 @@ function MiniTel({
           onCopy();
         }}
         style={{
-          border: '1px solid rgba(255,255,255,.18)',
-          background: 'rgba(255,255,255,.06)',
+          border: '1px solid rgba(0,0,0,.12)',
+          background: 'rgba(0,0,0,.04)',
           color: 'var(--text)',
           padding: '7px 10px',
           borderRadius: 10,
@@ -410,12 +449,14 @@ function RowActions({
   onToggleStatus,
   onCall,
   onSetObsForOutraCidade,
+  onSetRetornoHora,
   onCopyPhone,
 }: {
   row: Row;
   onToggleStatus: (next: Exclude<Status, 'PENDENTE'>) => void;
   onCall: (which: 'TF1' | 'TF2') => void;
   onSetObsForOutraCidade: () => void;
+  onSetRetornoHora: () => void;
   onCopyPhone: (which: 'TF1' | 'TF2') => void;
 }) {
   const tf1 = safeTel(row.TF1);
@@ -426,10 +467,12 @@ function RowActions({
   return (
     <div style={styles.actionsInline}>
       <div style={styles.inlineGroup}>
-        <ActionButton active={isNaoAtendeuOuCaixa} kind="danger" onClick={() => onToggleStatus('NAO_ATENDEU')}>
-          🔴 Não atendeu/caixa postal
+        {/* não atendeu/caixa postal => amarelo */}
+        <ActionButton active={isNaoAtendeuOuCaixa} kind="warning" onClick={() => onToggleStatus('NAO_ATENDEU')}>
+          🟡 Não atendeu/caixa postal
         </ActionButton>
 
+        {/* outra cidade => laranja */}
         <ActionButton
           active={row.STATUS === 'OUTRA_CIDADE'}
           kind="warning"
@@ -441,16 +484,21 @@ function RowActions({
           🟠 Outra cidade
         </ActionButton>
 
-        <ActionButton
-          active={row.STATUS === 'NUMERO_NAO_EXISTE'}
-          kind="blueLight"
-          onClick={() => onToggleStatus('NUMERO_NAO_EXISTE')}
-        >
-          🔵 Número não existe
+        {/* número não existe => vermelho */}
+        <ActionButton active={row.STATUS === 'NUMERO_NAO_EXISTE'} kind="danger" onClick={() => onToggleStatus('NUMERO_NAO_EXISTE')}>
+          🔴 Número não existe
         </ActionButton>
 
-        <ActionButton active={row.STATUS === 'LIGAR_MAIS_TARDE'} kind="blueDark" onClick={() => onToggleStatus('LIGAR_MAIS_TARDE')}>
-          🟦 Ligar mais tarde
+        {/* ligar mais tarde => RETORNO com popup de hora */}
+        <ActionButton
+          active={row.STATUS === 'RETORNO'}
+          kind="blueDark"
+          onClick={() => {
+            if (row.STATUS !== 'RETORNO') onSetRetornoHora();
+            onToggleStatus('RETORNO');
+          }}
+        >
+          🟦 Retorno
         </ActionButton>
 
         <ActionButton active={row.STATUS === 'ATENDEU'} kind="success" onClick={() => onToggleStatus('ATENDEU')}>
@@ -476,6 +524,7 @@ function FragmentRow({
   geoCols,
   onCopyIdp,
   onSetObsForOutraCidade,
+  onSetRetornoHora,
   onCopyPhone,
 }: {
   row: Row;
@@ -487,9 +536,10 @@ function FragmentRow({
   geoCols: { estado: boolean; cidade: boolean; regiao: boolean };
   onCopyIdp: () => void;
   onSetObsForOutraCidade: () => void;
+  onSetRetornoHora: () => void;
   onCopyPhone: (which: 'TF1' | 'TF2') => void;
 }) {
-  const selectedBg = 'rgba(255,255,255,.07)';
+  const selectedBg = 'rgba(0,0,0,.04)';
 
   return (
     <>
@@ -497,12 +547,12 @@ function FragmentRow({
         style={{
           ...styles.tr,
           background: isExpanded ? selectedBg : baseBg,
-          outline: isExpanded ? '1px solid rgba(255,255,255,.18)' : '1px solid transparent',
+          outline: isExpanded ? '1px solid rgba(0,0,0,.10)' : '1px solid transparent',
         }}
         onClick={onToggleExpand}
       >
         <td style={styles.td}>
-          <StatusPill status={row.STATUS} />
+          <StatusPill row={row} />
         </td>
 
         <td
@@ -535,6 +585,7 @@ function FragmentRow({
               onToggleStatus={onToggleStatus}
               onCall={onCall}
               onSetObsForOutraCidade={onSetObsForOutraCidade}
+              onSetRetornoHora={onSetRetornoHora}
               onCopyPhone={onCopyPhone}
             />
           </td>
@@ -727,6 +778,8 @@ function MiniAppTabela() {
   function toggleStatusForRow(row: Row, next: Exclude<Status, 'PENDENTE'>) {
     const newStatus: Status = row.STATUS === next ? 'PENDENTE' : next;
     updateRow(row.id, { STATUS: newStatus });
+
+    // se voltar pra pendente, não precisa guardar "RETORNO - HH:MM" (mas pode manter)
     markDirty(row, { STATUS: newStatus });
   }
 
@@ -739,8 +792,36 @@ function MiniAppTabela() {
     markDirty(row, { OBSERVACAO: cleaned });
   }
 
+  function askRetornoHora(row: Row) {
+    const current = retornoLabelFromObs(row.OBSERVACAO) || '';
+    const val = window.prompt('Horário do retorno (HH:MM)', current || '');
+    if (val === null) return;
+
+    const cleaned = String(val || '').trim();
+    if (!cleaned) {
+      // se apagou, ainda deixa como RETORNO sem hora
+      updateRow(row.id, { OBSERVACAO: 'RETORNO' });
+      markDirty(row, { OBSERVACAO: 'RETORNO' });
+      return;
+    }
+
+    const m = cleaned.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) {
+      window.alert('Formato inválido. Use HH:MM (ex: 09:30).');
+      return;
+    }
+
+    const hh = Math.min(23, Math.max(0, Number(m[1])));
+    const mm = Math.min(59, Math.max(0, Number(m[2])));
+    const hhmm = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+
+    const obs = `RETORNO - ${hhmm}`;
+    updateRow(row.id, { OBSERVACAO: obs });
+    markDirty(row, { OBSERVACAO: obs });
+  }
+
   function callPhoneForRow(row: Row, which: 'TF1' | 'TF2') {
-    const tel = safeTel(row[which]);
+    const tel = telToDial(row[which]); // ✅ adiciona 0 só aqui
     if (!tel) return;
     window.location.href = `tel:${tel}`;
   }
@@ -868,6 +949,7 @@ function MiniAppTabela() {
                   fontSize: 12,
                   color: 'var(--text-muted)',
                   wordBreak: 'break-all',
+                  background: 'var(--surface-2)',
                 }}
               >
                 {hintLink}
@@ -912,7 +994,7 @@ function MiniAppTabela() {
               )}
 
               {toast && (
-                <div style={{ marginTop: 8, padding: 10, border: '1px solid rgba(255,255,255,.18)', borderRadius: 10, fontSize: 12 }}>
+                <div style={{ marginTop: 8, padding: 10, border: '1px solid rgba(0,0,0,.12)', borderRadius: 10, fontSize: 12, background: 'var(--surface-2)' }}>
                   ✅ {toast}
                 </div>
               )}
@@ -927,7 +1009,7 @@ function MiniAppTabela() {
                 <option value="OUTRA_CIDADE">Status: Outra cidade</option>
                 <option value="NAO_ATENDEU">Status: Não atendeu/caixa postal</option>
                 <option value="NUMERO_NAO_EXISTE">Status: Número não existe</option>
-                <option value="LIGAR_MAIS_TARDE">Status: Ligar mais tarde</option>
+                <option value="RETORNO">Status: Retorno</option>
               </select>
 
               {geoCols.estado ? (
@@ -1020,6 +1102,7 @@ function MiniAppTabela() {
                         onCall={(which) => callPhoneForRow(r, which)}
                         onCopyIdp={() => copyToClipboard('IDP', r.IDP)}
                         onSetObsForOutraCidade={() => askOutraCidadeObs(r)}
+                        onSetRetornoHora={() => askRetornoHora(r)}
                         onCopyPhone={(which) => copyToClipboard(which, r[which])}
                       />
                     );
@@ -1184,10 +1267,9 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 900,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
-    color: 'var(--text)',
   },
   btnActive: {
-    outline: '2px solid rgba(255,255,255,.18)',
+    outline: '2px solid rgba(0,0,0,.10)',
   },
 
   actionsInline: {
