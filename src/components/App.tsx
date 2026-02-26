@@ -90,32 +90,69 @@ function safeTel(v: string) {
   return String(v || '').trim().replace(/[^\d+]/g, '');
 }
 
+function normalizeParam(v: string | null | undefined): string {
+  const s = String(v ?? '').trim();
+  if (!s) return '';
+  if (s.toLowerCase() === 'undefined') return '';
+  if (s.toLowerCase() === 'null') return '';
+  return s;
+}
+
+function getHashSearchParams(): URLSearchParams {
+  // HashRouter usa window.location.hash tipo: "#/?entregaId=...&parte=P01"
+  const hash = window.location.hash || '';
+  const qIndex = hash.indexOf('?');
+  if (qIndex < 0) return new URLSearchParams();
+  const qs = hash.slice(qIndex + 1); // tudo depois do ?
+  return new URLSearchParams(qs);
+}
+
 function getEntregaPkFromUrl(): string {
-  const sp = new URLSearchParams(window.location.search || '');
-  const direct = sp.get('entregaId') || sp.get('entrega_id') || sp.get('id') || '';
+  const url = new URL(window.location.href);
+
+  // 1) Query normal: https://site.com/?entregaId=...
+  const sp = url.searchParams;
+  const direct =
+    normalizeParam(sp.get('entregaId')) ||
+    normalizeParam(sp.get('entrega_id')) ||
+    normalizeParam(sp.get('id'));
+
   if (direct) return direct;
 
-  const h = window.location.hash || '';
-  const q = h.includes('?') ? h.split('?')[1] : '';
-  const hp = new URLSearchParams(q);
-  return hp.get('entregaId') || hp.get('entrega_id') || hp.get('id') || '';
+  // 2) Query no hash: https://site.com/#/?entregaId=...
+  const hp = getHashSearchParams();
+  const fromHash =
+    normalizeParam(hp.get('entregaId')) ||
+    normalizeParam(hp.get('entrega_id')) ||
+    normalizeParam(hp.get('id'));
+
+  return fromHash || '';
+}
+
+function getParteFromUrl(): string {
+  const url = new URL(window.location.href);
+
+  // 1) Query normal
+  const sp = url.searchParams;
+  const direct =
+    normalizeParam(sp.get('parte')) ||
+    normalizeParam(sp.get('chave_parte'));
+
+  if (direct) return direct;
+
+  // 2) Query no hash
+  const hp = getHashSearchParams();
+  const fromHash =
+    normalizeParam(hp.get('parte')) ||
+    normalizeParam(hp.get('chave_parte'));
+
+  return fromHash || '';
 }
 
 function getTelegramIdStrict(): string {
   const w: any = window as any;
   const tgId = w?.Telegram?.WebApp?.initDataUnsafe?.user?.id;
   return tgId ? String(tgId) : '';
-}
-
-function getParteFromUrl(): string {
-  const sp = new URLSearchParams(window.location.search || '');
-  const direct = sp.get('parte') || sp.get('chave_parte') || '';
-  if (direct) return direct;
-
-  const h = window.location.hash || '';
-  const q = h.includes('?') ? h.split('?')[1] : '';
-  const hp = new URLSearchParams(q);
-  return hp.get('parte') || hp.get('chave_parte') || '';
 }
 
 function statusText(s: Status) {
@@ -596,35 +633,45 @@ function MiniAppTabela() {
 
   // 1) FETCH payload por entregaId (PK)
   useEffect(() => {
-  const entregaId = getEntregaPkFromUrl();
-  if (!entregaId || entregaId === 'undefined' || entregaId === 'null') {
-    setError('URL sem entregaId. Abra pelo link do Telegram com ?entregaId=...');
-    return;
-  }
+    const entregaId = getEntregaPkFromUrl();
 
-  (async () => {
-    try {
-      setLoading(true);
-      setError('');
-      setPayload(null);
-
-      const url = `${API_GET_ENTREGA}?id=${encodeURIComponent(entregaId)}`;
-      const resp = await fetch(url, { cache: 'no-store' });
-
-      const raw = await resp.text();
-      if (!resp.ok) throw new Error(`HTTP ${resp.status} • ${raw || 'Sem body'}`);
-      if (!raw.trim()) throw new Error('Servidor respondeu vazio (sem JSON).');
-
-      const data = JSON.parse(raw);
-      setPayload(Array.isArray(data) ? data : [data]);
-    } catch (e: any) {
-      setError(String(e?.message || e || 'Erro ao buscar payload'));
-      setPayload(null);
-    } finally {
-      setLoading(false);
+    if (!entregaId) {
+      setError('URL sem entregaId. Abra pelo link com #/?entregaId=...&parte=...');
+      return;
     }
-  })();
-}, []);
+
+    (async () => {
+      try {
+        setLoading(true);
+        setError('');
+        setPayload(null);
+
+        const url = `${API_GET_ENTREGA}?id=${encodeURIComponent(entregaId)}`;
+        const resp = await fetch(url, { cache: 'no-store' });
+
+        const raw = await resp.text().catch(() => '');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} • ${raw || 'Sem body'}`);
+
+        if (!raw.trim()) {
+          throw new Error('Servidor respondeu vazio (sem JSON). Verifique o webhook /entregas no n8n.');
+        }
+
+        let data: any;
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          throw new Error(`Resposta não é JSON. Body (início): ${raw.slice(0, 300)}`);
+        }
+
+        setPayload(Array.isArray(data) ? data : [data]);
+      } catch (e: any) {
+        setError(String(e?.message || e || 'Erro ao buscar payload'));
+        setPayload(null);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
   // 2) opcional: payload via evento
   useEffect(() => {
