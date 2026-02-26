@@ -87,13 +87,13 @@ function getEntregaIdOnly(): string {
   if (qi >= 0) {
     const qs = hash.slice(qi + 1);
     const hp = new URLSearchParams(qs);
-    const v = (hp.get('entregasId') || '').trim();
+    const v = (hp.get('entregaId') || '').trim();
     if (v && v !== 'undefined' && v !== 'null') return v;
   }
 
   // ✅ Fallback: query normal "?entregaId=..."
   const sp = new URLSearchParams(window.location.search || '');
-  const v2 = (sp.get('entregasId') || '').trim();
+  const v2 = (sp.get('entregaId') || '').trim();
   if (v2 && v2 !== 'undefined' && v2 !== 'null') return v2;
 
   return '';
@@ -587,7 +587,7 @@ function MiniAppTabela() {
         setError('');
         setPayload(null);
 
-        const url = `${API_GET_ENTREGA}?id=${encodeURIComponent(entregaId)}`;
+        const url = `${API_GET_ENTREGA}?entregasId=${encodeURIComponent(entregaId)}`;
         const resp = await fetch(url, { cache: 'no-store' });
 
         const raw = await resp.text().catch(() => '');
