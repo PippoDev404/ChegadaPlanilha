@@ -596,33 +596,35 @@ function MiniAppTabela() {
 
   // 1) FETCH payload por entregaId (PK)
   useEffect(() => {
-    const entregaId = getEntregaPkFromUrl();
-    if (!entregaId) return;
+  const entregaId = getEntregaPkFromUrl();
+  if (!entregaId || entregaId === 'undefined' || entregaId === 'null') {
+    setError('URL sem entregaId. Abra pelo link do Telegram com ?entregaId=...');
+    return;
+  }
 
-    (async () => {
-      try {
-        setLoading(true);
-        setError('');
-        setPayload(null);
+  (async () => {
+    try {
+      setLoading(true);
+      setError('');
+      setPayload(null);
 
-        const url = `${API_GET_ENTREGA}?id=${encodeURIComponent(entregaId)}`;
-        const resp = await fetch(url, { cache: 'no-store' });
+      const url = `${API_GET_ENTREGA}?id=${encodeURIComponent(entregaId)}`;
+      const resp = await fetch(url, { cache: 'no-store' });
 
-        if (!resp.ok) {
-          const t = await resp.text().catch(() => '');
-          throw new Error(`HTTP ${resp.status} • ${t || 'Sem body'}`);
-        }
+      const raw = await resp.text();
+      if (!resp.ok) throw new Error(`HTTP ${resp.status} • ${raw || 'Sem body'}`);
+      if (!raw.trim()) throw new Error('Servidor respondeu vazio (sem JSON).');
 
-        const data = await resp.json();
-        setPayload(Array.isArray(data) ? data : [data]);
-      } catch (e: any) {
-        setError(String(e?.message || e || 'Erro ao buscar payload'));
-        setPayload(null);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+      const data = JSON.parse(raw);
+      setPayload(Array.isArray(data) ? data : [data]);
+    } catch (e: any) {
+      setError(String(e?.message || e || 'Erro ao buscar payload'));
+      setPayload(null);
+    } finally {
+      setLoading(false);
+    }
+  })();
+}, []);
 
   // 2) opcional: payload via evento
   useEffect(() => {
