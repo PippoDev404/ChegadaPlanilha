@@ -28,7 +28,7 @@ type Row = {
   TF2: string;
 
   STATUS: Status;
-  OBSERVACAO: string; // usado para guardar "RETORNO - HH:MM" e "Outra cidade: X"
+  OBSERVACAO: string; // RETORNO - HH:MM | OUTRA_CIDADE - CIDADE | livre
 };
 
 type StatusFilter = 'TODOS' | 'PENDENTES' | 'CONCLUIDOS' | Status;
@@ -39,13 +39,14 @@ const API_GET_ENTREGA = 'https://n8n.srv962474.hstgr.cloud/webhook/entregas';
 const API_SAVE_PARTE = 'https://n8n.srv962474.hstgr.cloud/webhook/parte/salvar';
 
 // =========================
-// THEME (invertido: fundo claro, texto escuro)
+// THEME (fundo claro + tabela branca)
 // =========================
 const globalCss = `
 :root{
   --bg: #FFFFFF;
-  --surface: #F3F4F6;
-  --surface-2: #FFFFFF;
+  --surface: #FFFFFF;       /* cards e tabela */
+  --surface-2: #FFFFFF;     /* sub-cards e linhas expandidas */
+  --surfaceMuted: #F3F4F6;  /* headers / barras */
   --text: #000000;
   --text-muted: #374151;
   --border: #D1D5DB;
@@ -59,6 +60,7 @@ const globalCss = `
   --success: #16A34A;
   --warning: #F59E0B;
   --danger:  #EF4444;
+  --orange:  #F97316;
 
   --blueDark: #1E3A8A;
   --blueLight: #38BDF8;
@@ -67,9 +69,7 @@ const globalCss = `
   --radius: 15px;
 }
 
-html, body{
-  height: 100%;
-}
+html, body{ height: 100%; }
 
 body{
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -86,7 +86,6 @@ button:disabled{ opacity: .55; cursor: not-allowed !important; }
 // HELPERS — SOMENTE ENTREGAID
 // =========================
 function getEntregaIdOnly(): string {
-  // ✅ Preferência: HashRouter: "#/?entregaId=..."
   const hash = window.location.hash || '';
   const qi = hash.indexOf('?');
   if (qi >= 0) {
@@ -96,7 +95,6 @@ function getEntregaIdOnly(): string {
     if (v && v !== 'undefined' && v !== 'null') return v;
   }
 
-  // ✅ Fallback: query normal "?entregaId=..."
   const sp = new URLSearchParams(window.location.search || '');
   const v2 = (sp.get('entregaId') || '').trim();
   if (v2 && v2 !== 'undefined' && v2 !== 'null') return v2;
@@ -108,11 +106,10 @@ function safeTel(v: string) {
   return String(v || '').trim().replace(/[^\d+]/g, '');
 }
 
-// 👇 só adiciona "0" na hora de ligar (não mexe na exibição/CSV)
+// só adiciona "0" na hora de ligar (não mexe na exibição/CSV)
 function telToDial(v: string) {
   const digits = safeTel(v).replace(/[^\d]/g, '');
   if (!digits) return '';
-  // se já tem 0 na frente, mantém; se começar com 55 etc, não força
   if (digits.startsWith('0') || digits.startsWith('55')) return digits;
   return `0${digits}`;
 }
@@ -124,7 +121,6 @@ function toUpperTrim(v: string) {
 function sanitizeStatus(raw: string): Status {
   const s = toUpperTrim(raw);
 
-  // compat
   if (s === 'SEM_RESPOSTA') return 'RETORNO';
   if (s === 'LIGAR_MAIS_TARDE') return 'RETORNO';
   if (s.startsWith('RETORNO')) return 'RETORNO';
@@ -253,11 +249,18 @@ function csvToRows(csv: string): Row[] {
 
 function retornoLabelFromObs(obs: string) {
   const t = String(obs || '').trim();
-  // aceita "RETORNO - HH:MM" ou "RETORNO HH:MM"
   const m = t.match(/RETORNO\s*[-–—]?\s*(\d{1,2}:\d{2})/i);
-  if (!m) return '';
-  const hhmm = m[1];
-  return hhmm;
+  return m?.[1] || '';
+}
+
+function isRetornoObs(obs: string) {
+  return /RETORNO\s*[-–—]?\s*\d{1,2}:\d{2}/i.test(String(obs || '').trim()) || /^RETORNO$/i.test(String(obs || '').trim());
+}
+
+function outraCidadeFromObs(obs: string) {
+  const t = String(obs || '').trim();
+  const m = t.match(/OUTRA_CIDADE\s*[-–—]?\s*(.*)$/i);
+  return (m?.[1] || '').trim();
 }
 
 function statusText(row: Row) {
@@ -276,26 +279,22 @@ function statusText(row: Row) {
   return 'PENDENTE';
 }
 
+// cores mais fortes (menos transparente)
 function statusVars(s: Status) {
-  // pedidos:
-  // - não atendeu/caixa postal => amarelo
-  // - outra cidade => laranja
-  // - número não existe => vermelho
-  // - retorno => azul escuro (mantive)
   switch (s) {
     case 'ATENDEU':
-      return { bd: 'var(--success)', bg: 'rgba(22,163,74,.12)' };
+      return { bd: 'var(--success)', bg: 'rgba(22,163,74,.32)' };
     case 'OUTRA_CIDADE':
-      return { bd: 'var(--warning)', bg: 'rgba(245,158,11,.16)' }; // laranja
+      return { bd: 'var(--orange)', bg: 'rgba(249,115,22,.34)' };
     case 'RETORNO':
-      return { bd: 'var(--blueDark)', bg: 'rgba(30,58,138,.14)' };
+      return { bd: 'var(--blueDark)', bg: 'rgba(30,58,138,.30)' };
     case 'NUMERO_NAO_EXISTE':
-      return { bd: 'var(--danger)', bg: 'rgba(239,68,68,.14)' }; // vermelho
+      return { bd: 'var(--danger)', bg: 'rgba(239,68,68,.34)' };
     case 'NAO_ATENDEU':
     case 'CAIXA_POSTAL':
-      return { bd: 'var(--warning)', bg: 'rgba(245,158,11,.16)' }; // amarelo
+      return { bd: 'var(--warning)', bg: 'rgba(245,158,11,.34)' };
     default:
-      return { bd: 'var(--border)', bg: 'rgba(0,0,0,.03)' };
+      return { bd: 'var(--border)', bg: 'rgba(0,0,0,.06)' };
   }
 }
 
@@ -303,15 +302,15 @@ function rowBg(status: Status) {
   switch (status) {
     case 'NAO_ATENDEU':
     case 'CAIXA_POSTAL':
-      return 'rgba(245,158,11,.14)'; // amarelo
+      return 'rgba(245,158,11,.22)';
     case 'OUTRA_CIDADE':
-      return 'rgba(245,158,11,.16)'; // laranja (mesmo warning)
+      return 'rgba(249,115,22,.22)';
     case 'ATENDEU':
-      return 'rgba(22,163,74,.14)';
+      return 'rgba(22,163,74,.20)';
     case 'RETORNO':
-      return 'rgba(30,58,138,.10)';
+      return 'rgba(30,58,138,.18)';
     case 'NUMERO_NAO_EXISTE':
-      return 'rgba(239,68,68,.12)'; // vermelho
+      return 'rgba(239,68,68,.20)';
     default:
       return 'transparent';
   }
@@ -330,7 +329,7 @@ function StatusPill({ row }: { row: Row }) {
         gap: 6,
         padding: '4px 9px',
         borderRadius: 999,
-        border: `1px solid ${c.bd}`,
+        border: `2px solid ${c.bd}`,
         background: c.bg,
         fontWeight: 900,
         fontSize: 11,
@@ -350,20 +349,22 @@ function ActionButton({
   onClick,
 }: {
   active: boolean;
-  kind: 'danger' | 'warning' | 'success' | 'blueDark' | 'blueLight';
+  kind: 'danger' | 'warning' | 'success' | 'blueDark' | 'blueLight' | 'orange';
   children: React.ReactNode;
   onClick: () => void;
 }) {
   const base =
     kind === 'danger'
-      ? { border: '1px solid rgba(239,68,68,.45)', background: 'rgba(239,68,68,.12)', color: 'var(--text)' }
+      ? { border: '2px solid rgba(239,68,68,.70)', background: 'rgba(239,68,68,.28)', color: 'var(--text)' }
+      : kind === 'orange'
+      ? { border: '2px solid rgba(249,115,22,.70)', background: 'rgba(249,115,22,.28)', color: 'var(--text)' }
       : kind === 'warning'
-      ? { border: '1px solid rgba(245,158,11,.45)', background: 'rgba(245,158,11,.14)', color: 'var(--text)' }
+      ? { border: '2px solid rgba(245,158,11,.70)', background: 'rgba(245,158,11,.28)', color: 'var(--text)' }
       : kind === 'blueDark'
-      ? { border: '1px solid rgba(30,58,138,.45)', background: 'rgba(30,58,138,.12)', color: 'var(--text)' }
+      ? { border: '2px solid rgba(30,58,138,.65)', background: 'rgba(30,58,138,.24)', color: 'var(--text)' }
       : kind === 'blueLight'
-      ? { border: '1px solid rgba(56,189,248,.45)', background: 'rgba(56,189,248,.12)', color: 'var(--text)' }
-      : { border: '1px solid rgba(22,163,74,.45)', background: 'rgba(22,163,74,.12)', color: 'var(--text)' };
+      ? { border: '2px solid rgba(56,189,248,.65)', background: 'rgba(56,189,248,.22)', color: 'var(--text)' }
+      : { border: '2px solid rgba(22,163,74,.65)', background: 'rgba(22,163,74,.24)', color: 'var(--text)' };
 
   return (
     <button
@@ -405,7 +406,7 @@ function MiniTel({
         }}
         style={{
           border: '1px solid var(--border)',
-          background: disabled ? 'var(--surface)' : 'var(--primary)',
+          background: disabled ? 'var(--surfaceMuted)' : 'var(--primary)',
           color: disabled ? 'var(--text-muted)' : 'var(--primary-text)',
           padding: '7px 12px',
           borderRadius: 10,
@@ -426,8 +427,8 @@ function MiniTel({
           onCopy();
         }}
         style={{
-          border: '1px solid rgba(0,0,0,.12)',
-          background: 'rgba(0,0,0,.04)',
+          border: '1px solid rgba(0,0,0,.18)',
+          background: 'rgba(0,0,0,.06)',
           color: 'var(--text)',
           padding: '7px 10px',
           borderRadius: 10,
@@ -448,15 +449,15 @@ function RowActions({
   row,
   onToggleStatus,
   onCall,
-  onSetObsForOutraCidade,
-  onSetRetornoHora,
+  onAskOutraCidade,
+  onOpenRetornoPicker,
   onCopyPhone,
 }: {
   row: Row;
   onToggleStatus: (next: Exclude<Status, 'PENDENTE'>) => void;
   onCall: (which: 'TF1' | 'TF2') => void;
-  onSetObsForOutraCidade: () => void;
-  onSetRetornoHora: () => void;
+  onAskOutraCidade: () => void;
+  onOpenRetornoPicker: () => void;
   onCopyPhone: (which: 'TF1' | 'TF2') => void;
 }) {
   const tf1 = safeTel(row.TF1);
@@ -467,35 +468,35 @@ function RowActions({
   return (
     <div style={styles.actionsInline}>
       <div style={styles.inlineGroup}>
-        {/* não atendeu/caixa postal => amarelo */}
         <ActionButton active={isNaoAtendeuOuCaixa} kind="warning" onClick={() => onToggleStatus('NAO_ATENDEU')}>
           🟡 Não atendeu/caixa postal
         </ActionButton>
 
-        {/* outra cidade => laranja */}
         <ActionButton
           active={row.STATUS === 'OUTRA_CIDADE'}
-          kind="warning"
+          kind="orange"
           onClick={() => {
-            if (row.STATUS !== 'OUTRA_CIDADE') onSetObsForOutraCidade();
+            if (row.STATUS !== 'OUTRA_CIDADE') onAskOutraCidade();
             onToggleStatus('OUTRA_CIDADE');
           }}
         >
           🟠 Outra cidade
         </ActionButton>
 
-        {/* número não existe => vermelho */}
         <ActionButton active={row.STATUS === 'NUMERO_NAO_EXISTE'} kind="danger" onClick={() => onToggleStatus('NUMERO_NAO_EXISTE')}>
           🔴 Número não existe
         </ActionButton>
 
-        {/* ligar mais tarde => RETORNO com popup de hora */}
+        {/* Retorno: se já é retorno, clique volta pra pendente; se não, abre picker (estilo relógio do celular via input time) */}
         <ActionButton
           active={row.STATUS === 'RETORNO'}
           kind="blueDark"
           onClick={() => {
-            if (row.STATUS !== 'RETORNO') onSetRetornoHora();
-            onToggleStatus('RETORNO');
+            if (row.STATUS === 'RETORNO') {
+              onToggleStatus('RETORNO'); // toggle pra pendente
+              return;
+            }
+            onOpenRetornoPicker(); // só vira retorno após confirmar
           }}
         >
           🟦 Retorno
@@ -523,8 +524,8 @@ function FragmentRow({
   onCall,
   geoCols,
   onCopyIdp,
-  onSetObsForOutraCidade,
-  onSetRetornoHora,
+  onAskOutraCidade,
+  onOpenRetornoPicker,
   onCopyPhone,
 }: {
   row: Row;
@@ -535,11 +536,11 @@ function FragmentRow({
   onCall: (which: 'TF1' | 'TF2') => void;
   geoCols: { estado: boolean; cidade: boolean; regiao: boolean };
   onCopyIdp: () => void;
-  onSetObsForOutraCidade: () => void;
-  onSetRetornoHora: () => void;
+  onAskOutraCidade: () => void;
+  onOpenRetornoPicker: () => void;
   onCopyPhone: (which: 'TF1' | 'TF2') => void;
 }) {
-  const selectedBg = 'rgba(0,0,0,.04)';
+  const selectedBg = 'rgba(0,0,0,.05)';
 
   return (
     <>
@@ -547,7 +548,7 @@ function FragmentRow({
         style={{
           ...styles.tr,
           background: isExpanded ? selectedBg : baseBg,
-          outline: isExpanded ? '1px solid rgba(0,0,0,.10)' : '1px solid transparent',
+          outline: isExpanded ? '2px solid rgba(0,0,0,.10)' : '2px solid transparent',
         }}
         onClick={onToggleExpand}
       >
@@ -584,14 +585,110 @@ function FragmentRow({
               row={row}
               onToggleStatus={onToggleStatus}
               onCall={onCall}
-              onSetObsForOutraCidade={onSetObsForOutraCidade}
-              onSetRetornoHora={onSetRetornoHora}
+              onAskOutraCidade={onAskOutraCidade}
+              onOpenRetornoPicker={onOpenRetornoPicker}
               onCopyPhone={onCopyPhone}
             />
           </td>
         </tr>
       ) : null}
     </>
+  );
+}
+
+// =========================
+// MODAL RETORNO (picker tipo relógio via input time)
+// =========================
+function RetornoModal({
+  open,
+  initialValue,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  initialValue: string;
+  onCancel: () => void;
+  onConfirm: (hhmm: string) => void;
+}) {
+  const [value, setValue] = useState(initialValue || '');
+
+  useEffect(() => {
+    setValue(initialValue || '');
+  }, [initialValue, open]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      onClick={onCancel}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,.35)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 14,
+        zIndex: 9999,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 'min(420px, 96vw)',
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 14,
+          boxShadow: 'var(--shadow)',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ padding: 12, background: 'var(--surfaceMuted)', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ fontWeight: 900, fontSize: 14, color: 'var(--text)' }}>⏰ Agendar retorno</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Selecione a hora e o minuto</div>
+        </div>
+
+        <div style={{ padding: 12 }}>
+          <input
+            type="time"
+            step={60}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '12px 12px',
+              borderRadius: 12,
+              border: '1px solid var(--border)',
+              background: 'var(--surface-2)',
+              color: 'var(--text)',
+              fontSize: 16,
+              fontWeight: 900,
+              outline: 'none',
+            }}
+          />
+
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+            <button style={styles.btn} onClick={onCancel}>
+              Cancelar
+            </button>
+
+            <button
+              style={{ ...styles.btn, ...styles.btnPrimary }}
+              onClick={() => {
+                const cleaned = String(value || '').trim();
+                if (!cleaned || !/^\d{2}:\d{2}$/.test(cleaned)) {
+                  window.alert('Selecione um horário válido.');
+                  return;
+                }
+                onConfirm(cleaned);
+              }}
+            >
+              Confirmar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -617,16 +714,19 @@ function MiniAppTabela() {
   const [regiaoFilter, setRegiaoFilter] = useState<string>('TODAS');
 
   const [page, setPage] = useState(1);
-
   const [toast, setToast] = useState<string>('');
 
   const [dirty, setDirty] = useState<Record<string, { STATUS: Status; OBSERVACAO: string }>>({});
   const dirtyCount = useMemo(() => Object.keys(dirty).length, [dirty]);
 
+  // modal retorno
+  const [retornoModalOpen, setRetornoModalOpen] = useState(false);
+  const [retornoRowId, setRetornoRowId] = useState<string>('');
+  const [retornoInitial, setRetornoInitial] = useState<string>('');
+
   // ✅ 1) GET — SOMENTE entregaId
   useEffect(() => {
     const entregaId = getEntregaIdOnly();
-
     if (!entregaId) {
       setError('Sem entregaId na URL. Abra com: #/?entregaId=SEU_ID');
       return;
@@ -662,7 +762,7 @@ function MiniAppTabela() {
     })();
   }, []);
 
-  // ✅ 2) Quando payload chegar, converte CSV em rows (sem depender de parte)
+  // ✅ 2) Quando payload chegar, converte CSV em rows
   useEffect(() => {
     if (!payload || payload.length === 0) return;
 
@@ -775,53 +875,62 @@ function MiniAppTabela() {
     setSaveTick((x) => x + 1);
   }
 
+  // ✅ corrige "bug": ao sair de RETORNO para outro status, limpa OBSERVACAO se ela for do retorno
   function toggleStatusForRow(row: Row, next: Exclude<Status, 'PENDENTE'>) {
     const newStatus: Status = row.STATUS === next ? 'PENDENTE' : next;
-    updateRow(row.id, { STATUS: newStatus });
 
-    // se voltar pra pendente, não precisa guardar "RETORNO - HH:MM" (mas pode manter)
-    markDirty(row, { STATUS: newStatus });
+    let nextObs = row.OBSERVACAO;
+
+    // se estava em retorno e vai para outro status -> limpa obs de retorno
+    if (row.STATUS === 'RETORNO' && newStatus !== 'RETORNO' && isRetornoObs(nextObs)) {
+      nextObs = '';
+    }
+
+    updateRow(row.id, { STATUS: newStatus, OBSERVACAO: nextObs });
+    markDirty(row, { STATUS: newStatus, OBSERVACAO: nextObs });
   }
 
   function askOutraCidadeObs(row: Row) {
-    const current = String(row.OBSERVACAO || '').trim();
-    const val = window.prompt('Qual cidade?', current || '');
-    if (val === null) return;
-    const cleaned = String(val || '').trim();
-    updateRow(row.id, { OBSERVACAO: cleaned });
-    markDirty(row, { OBSERVACAO: cleaned });
-  }
-
-  function askRetornoHora(row: Row) {
-    const current = retornoLabelFromObs(row.OBSERVACAO) || '';
-    const val = window.prompt('Horário do retorno (HH:MM)', current || '');
+    // não usar OBS de retorno como default
+    const current = outraCidadeFromObs(row.OBSERVACAO) || '';
+    const val = window.prompt('Qual cidade?', current);
     if (val === null) return;
 
     const cleaned = String(val || '').trim();
-    if (!cleaned) {
-      // se apagou, ainda deixa como RETORNO sem hora
-      updateRow(row.id, { OBSERVACAO: 'RETORNO' });
-      markDirty(row, { OBSERVACAO: 'RETORNO' });
-      return;
-    }
 
-    const m = cleaned.match(/^(\d{1,2}):(\d{2})$/);
-    if (!m) {
-      window.alert('Formato inválido. Use HH:MM (ex: 09:30).');
-      return;
-    }
+    // padroniza no OBS para não misturar com retorno
+    const obs = cleaned ? `OUTRA_CIDADE - ${cleaned}` : 'OUTRA_CIDADE';
 
-    const hh = Math.min(23, Math.max(0, Number(m[1])));
-    const mm = Math.min(59, Math.max(0, Number(m[2])));
-    const hhmm = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-
-    const obs = `RETORNO - ${hhmm}`;
     updateRow(row.id, { OBSERVACAO: obs });
     markDirty(row, { OBSERVACAO: obs });
   }
 
+  function openRetornoPicker(row: Row) {
+    const current = retornoLabelFromObs(row.OBSERVACAO) || '';
+    setRetornoRowId(row.id);
+    setRetornoInitial(current);
+    setRetornoModalOpen(true);
+  }
+
+  function confirmRetorno(hhmm: string) {
+    const row = allRows.find((r) => r.id === retornoRowId);
+    if (!row) {
+      setRetornoModalOpen(false);
+      return;
+    }
+
+    const obs = `RETORNO - ${hhmm}`;
+
+    // ao confirmar: vira RETORNO + seta obs
+    updateRow(row.id, { STATUS: 'RETORNO', OBSERVACAO: obs });
+    markDirty(row, { STATUS: 'RETORNO', OBSERVACAO: obs });
+
+    setRetornoModalOpen(false);
+    setRetornoRowId('');
+  }
+
   function callPhoneForRow(row: Row, which: 'TF1' | 'TF2') {
-    const tel = telToDial(row[which]); // ✅ adiciona 0 só aqui
+    const tel = telToDial(row[which]);
     if (!tel) return;
     window.location.href = `tel:${tel}`;
   }
@@ -851,7 +960,7 @@ function MiniAppTabela() {
     }
   }
 
-  // ✅ AUTOSAVE (não precisa de parte pra carregar; aqui só salva mudanças)
+  // ✅ AUTOSAVE
   useEffect(() => {
     const entrega_id = getEntregaIdOnly();
     if (!entrega_id) return;
@@ -877,7 +986,6 @@ function MiniAppTabela() {
           cache: 'no-store',
           body: JSON.stringify({
             entrega_id,
-            // chave_parte: opcional — se o backend exigir, ele vai reclamar aqui
             changes,
           }),
         });
@@ -930,6 +1038,16 @@ function MiniAppTabela() {
     <div style={{ padding: 12 }}>
       <style>{globalCss}</style>
 
+      <RetornoModal
+        open={retornoModalOpen}
+        initialValue={retornoInitial}
+        onCancel={() => {
+          setRetornoModalOpen(false);
+          setRetornoRowId('');
+        }}
+        onConfirm={confirmRetorno}
+      />
+
       {!hasData ? (
         <div style={styles.card}>
           <div style={{ padding: 14, color: 'var(--text)' }}>
@@ -949,7 +1067,7 @@ function MiniAppTabela() {
                   fontSize: 12,
                   color: 'var(--text-muted)',
                   wordBreak: 'break-all',
-                  background: 'var(--surface-2)',
+                  background: 'var(--surface)',
                 }}
               >
                 {hintLink}
@@ -994,7 +1112,16 @@ function MiniAppTabela() {
               )}
 
               {toast && (
-                <div style={{ marginTop: 8, padding: 10, border: '1px solid rgba(0,0,0,.12)', borderRadius: 10, fontSize: 12, background: 'var(--surface-2)' }}>
+                <div
+                  style={{
+                    marginTop: 8,
+                    padding: 10,
+                    border: '1px solid rgba(0,0,0,.18)',
+                    borderRadius: 10,
+                    fontSize: 12,
+                    background: 'var(--surface)',
+                  }}
+                >
                   ✅ {toast}
                 </div>
               )}
@@ -1101,8 +1228,8 @@ function MiniAppTabela() {
                         onToggleStatus={(next) => toggleStatusForRow(r, next)}
                         onCall={(which) => callPhoneForRow(r, which)}
                         onCopyIdp={() => copyToClipboard('IDP', r.IDP)}
-                        onSetObsForOutraCidade={() => askOutraCidadeObs(r)}
-                        onSetRetornoHora={() => askRetornoHora(r)}
+                        onAskOutraCidade={() => askOutraCidadeObs(r)}
+                        onOpenRetornoPicker={() => openRetornoPicker(r)}
                         onCopyPhone={(which) => copyToClipboard(which, r[which])}
                       />
                     );
@@ -1112,7 +1239,7 @@ function MiniAppTabela() {
                     <tr>
                       <td
                         colSpan={2 + (geoCols.estado ? 1 : 0) + (geoCols.cidade ? 1 : 0) + (geoCols.regiao ? 1 : 0) + 2}
-                        style={{ padding: 14, color: 'var(--text-muted)', fontSize: 13 }}
+                        style={{ padding: 14, color: 'var(--text-muted)', fontSize: 13, background: 'var(--surface)' }}
                       >
                         Nenhum registro encontrado com esses filtros.
                       </td>
@@ -1124,7 +1251,7 @@ function MiniAppTabela() {
 
             <div style={styles.footerHint}>✅ Clique no mesmo botão novamente para voltar a PENDENTE.</div>
 
-            <div style={{ padding: 10, borderTop: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+            <div style={{ padding: 10, borderTop: '1px solid var(--border)', background: 'var(--surfaceMuted)' }}>
               <PaginationControls />
             </div>
           </div>
@@ -1153,7 +1280,7 @@ export function App() {
 // =========================
 const styles: Record<string, React.CSSProperties> = {
   topbarLocal: {
-    background: 'var(--surface)',
+    background: 'var(--surfaceMuted)',
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius)',
     boxShadow: 'var(--shadow)',
@@ -1178,7 +1305,7 @@ const styles: Record<string, React.CSSProperties> = {
 
   select: {
     border: '1px solid var(--border)',
-    background: 'var(--surface-2)',
+    background: 'var(--surface)',
     color: 'var(--text)',
     padding: '10px 12px',
     borderRadius: 10,
@@ -1189,7 +1316,7 @@ const styles: Record<string, React.CSSProperties> = {
   nav: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
   pill: {
     border: '1px solid var(--border)',
-    background: 'var(--surface-2)',
+    background: 'var(--surface)',
     color: 'var(--text)',
     padding: '8px 10px',
     borderRadius: 999,
@@ -1226,17 +1353,17 @@ const styles: Record<string, React.CSSProperties> = {
   cardHeader: {
     padding: 10,
     borderBottom: '1px solid var(--border)',
-    background: 'var(--surface-2)',
+    background: 'var(--surfaceMuted)',
   },
   cardTitle: { fontWeight: 900, fontSize: 14, color: 'var(--text)' },
   cardSub: { fontSize: 13, color: 'var(--text-muted)', marginTop: 4 },
 
-  tableWrap: { overflow: 'auto' },
+  tableWrap: { overflow: 'auto', background: 'var(--surface)' },
   table: { width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 860 },
   th: {
     position: 'sticky',
     top: 0,
-    background: 'var(--surface-2)',
+    background: 'var(--surfaceMuted)',
     borderBottom: '1px solid var(--border)',
     padding: '10px 12px',
     fontSize: 13,
@@ -1252,12 +1379,14 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text)',
     whiteSpace: 'nowrap',
     userSelect: 'text',
+    background: 'transparent',
   },
 
   footerHint: {
     padding: 10,
     color: 'var(--text-muted)',
     fontSize: 13,
+    background: 'var(--surface)',
   },
 
   btnAction: {
@@ -1269,13 +1398,13 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: 'nowrap',
   },
   btnActive: {
-    outline: '2px solid rgba(0,0,0,.10)',
+    outline: '3px solid rgba(0,0,0,.12)',
   },
 
   actionsInline: {
     padding: 10,
     borderTop: '1px solid var(--border)',
-    background: 'var(--surface-2)',
+    background: 'var(--surfaceMuted)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
