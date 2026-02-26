@@ -6,18 +6,13 @@ type Status =
   | 'NAO_ATENDEU'
   | 'OUTRA_CIDADE'
   | 'ATENDEU'
-  | 'CAIXA_POSTAL' // compat
+  | 'CAIXA_POSTAL'
   | 'LIGAR_MAIS_TARDE'
   | 'NUMERO_NAO_EXISTE';
 
 type PartePayload = {
-  telegram_id?: string;
-  telegram_username?: string;
-  categoria?: string;
-  chave_parte?: string;
-  total_linhas?: number;
-  tamanho_bytes?: number;
   csv?: string;
+  chave_parte?: string; // pode vir do backend, mas NÃO é necessário pra carregar
 };
 
 type Row = {
@@ -40,12 +35,11 @@ type StatusFilter = 'TODOS' | 'PENDENTES' | 'CONCLUIDOS' | Status;
 
 const PAGE_SIZE = 20;
 
-// Ajuste se o seu n8n tiver outro path
 const API_GET_ENTREGA = 'https://n8n.srv962474.hstgr.cloud/webhook/entregas';
 const API_SAVE_PARTE = 'https://n8n.srv962474.hstgr.cloud/webhook/parte/salvar';
 
 // =========================
-// CSS / THEME
+// THEME
 // =========================
 const globalCss = `
 :root{
@@ -66,8 +60,8 @@ const globalCss = `
   --warning: #F59E0B;
   --danger:  #EF4444;
 
-  --blueDark: #1E3A8A;   /* Ligar mais tarde */
-  --blueLight: #38BDF8;  /* Número não existe */
+  --blueDark: #1E3A8A;
+  --blueLight: #38BDF8;
 
   --shadow: 0 10px 30px rgba(0,0,0,.35);
   --radius: 15px;
@@ -84,123 +78,54 @@ button:disabled{ opacity: .55; cursor: not-allowed !important; }
 `;
 
 // =========================
-// HELPERS
+// HELPERS — SOMENTE ENTREGAID
 // =========================
+function getEntregaIdOnly(): string {
+  // ✅ Preferência: HashRouter: "#/?entregaId=..."
+  const hash = window.location.hash || '';
+  const qi = hash.indexOf('?');
+  if (qi >= 0) {
+    const qs = hash.slice(qi + 1);
+    const hp = new URLSearchParams(qs);
+    const v = (hp.get('entregaId') || '').trim();
+    if (v && v !== 'undefined' && v !== 'null') return v;
+  }
+
+  // ✅ Fallback: query normal "?entregaId=..."
+  const sp = new URLSearchParams(window.location.search || '');
+  const v2 = (sp.get('entregaId') || '').trim();
+  if (v2 && v2 !== 'undefined' && v2 !== 'null') return v2;
+
+  return '';
+}
+
 function safeTel(v: string) {
   return String(v || '').trim().replace(/[^\d+]/g, '');
 }
 
-function normalizeParam(v: string | null | undefined): string {
-  const s = String(v ?? '').trim();
-  if (!s) return '';
-  if (s.toLowerCase() === 'undefined') return '';
-  if (s.toLowerCase() === 'null') return '';
-  return s;
+function toUpperTrim(v: string) {
+  return String(v || '').trim().toUpperCase();
 }
 
-function getHashSearchParams(): URLSearchParams {
-  // HashRouter usa window.location.hash tipo: "#/?entregaId=...&parte=P01"
-  const hash = window.location.hash || '';
-  const qIndex = hash.indexOf('?');
-  if (qIndex < 0) return new URLSearchParams();
-  const qs = hash.slice(qIndex + 1); // tudo depois do ?
-  return new URLSearchParams(qs);
-}
+function sanitizeStatus(raw: string): Status {
+  const s = toUpperTrim(raw);
+  if (s === 'SEM_RESPOSTA') return 'LIGAR_MAIS_TARDE';
 
-function getEntregaPkFromUrl(): string {
-  const url = new URL(window.location.href);
+  if (
+    s === 'PENDENTE' ||
+    s === 'ATENDEU' ||
+    s === 'OUTRA_CIDADE' ||
+    s === 'NAO_ATENDEU' ||
+    s === 'CAIXA_POSTAL' ||
+    s === 'LIGAR_MAIS_TARDE' ||
+    s === 'NUMERO_NAO_EXISTE'
+  )
+    return s as Status;
 
-  // 1) Query normal: https://site.com/?entregaId=...
-  const sp = url.searchParams;
-  const direct =
-    normalizeParam(sp.get('entregaId')) ||
-    normalizeParam(sp.get('entrega_id')) ||
-    normalizeParam(sp.get('id'));
-
-  if (direct) return direct;
-
-  // 2) Query no hash: https://site.com/#/?entregaId=...
-  const hp = getHashSearchParams();
-  const fromHash =
-    normalizeParam(hp.get('entregaId')) ||
-    normalizeParam(hp.get('entrega_id')) ||
-    normalizeParam(hp.get('id'));
-
-  return fromHash || '';
-}
-
-function getParteFromUrl(): string {
-  const url = new URL(window.location.href);
-
-  // 1) Query normal
-  const sp = url.searchParams;
-  const direct =
-    normalizeParam(sp.get('parte')) ||
-    normalizeParam(sp.get('chave_parte'));
-
-  if (direct) return direct;
-
-  // 2) Query no hash
-  const hp = getHashSearchParams();
-  const fromHash =
-    normalizeParam(hp.get('parte')) ||
-    normalizeParam(hp.get('chave_parte'));
-
-  return fromHash || '';
-}
-
-function getTelegramIdStrict(): string {
-  const w: any = window as any;
-  const tgId = w?.Telegram?.WebApp?.initDataUnsafe?.user?.id;
-  return tgId ? String(tgId) : '';
-}
-
-function statusText(s: Status) {
-  if (s === 'ATENDEU') return 'CONCLUÍDO • ATENDEU';
-  if (s === 'OUTRA_CIDADE') return 'CONCLUÍDO • OUTRA CIDADE';
-  if (s === 'NAO_ATENDEU') return 'CONCLUÍDO • NÃO ATENDEU/CAIXA POSTAL';
-  if (s === 'CAIXA_POSTAL') return 'CONCLUÍDO • NÃO ATENDEU/CAIXA POSTAL';
-  if (s === 'LIGAR_MAIS_TARDE') return 'CONCLUÍDO • LIGAR MAIS TARDE';
-  if (s === 'NUMERO_NAO_EXISTE') return 'CONCLUÍDO • NÚMERO NÃO EXISTE';
   return 'PENDENTE';
 }
 
-function statusVars(s: Status) {
-  switch (s) {
-    case 'ATENDEU':
-      return { bd: 'var(--success)', bg: 'rgba(34,197,94,.14)' };
-    case 'OUTRA_CIDADE':
-      return { bd: 'var(--warning)', bg: 'rgba(245,158,11,.14)' };
-    case 'LIGAR_MAIS_TARDE':
-      return { bd: 'var(--blueDark)', bg: 'rgba(30,58,138,.18)' };
-    case 'NUMERO_NAO_EXISTE':
-      return { bd: 'var(--blueLight)', bg: 'rgba(56,189,248,.16)' };
-    case 'NAO_ATENDEU':
-    case 'CAIXA_POSTAL':
-      return { bd: 'var(--danger)', bg: 'rgba(239,68,68,.14)' };
-    default:
-      return { bd: 'var(--border)', bg: 'rgba(255,255,255,.06)' };
-  }
-}
-
-function rowBg(status: Status) {
-  switch (status) {
-    case 'NAO_ATENDEU':
-    case 'CAIXA_POSTAL':
-      return 'rgba(239,68,68,.16)';
-    case 'OUTRA_CIDADE':
-      return 'rgba(245,158,11,.16)';
-    case 'ATENDEU':
-      return 'rgba(34,197,94,.16)';
-    case 'LIGAR_MAIS_TARDE':
-      return 'rgba(30,58,138,.16)';
-    case 'NUMERO_NAO_EXISTE':
-      return 'rgba(56,189,248,.14)';
-    default:
-      return 'transparent';
-  }
-}
-
+// CSV parser simples (já suporta aspas)
 function parseCsv(csv: string): { headers: string[]; rows: Record<string, string>[] } {
   const text = String(csv || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   if (!text) return { headers: [], rows: [] };
@@ -276,36 +201,11 @@ function pickKey(obj: Record<string, string>, keys: string[]) {
   return '';
 }
 
-function toUpperTrim(v: string) {
-  return String(v || '').trim().toUpperCase();
-}
-
-function sanitizeStatus(raw: string): Status {
-  const s = toUpperTrim(raw);
-  if (s === 'SEM_RESPOSTA') return 'LIGAR_MAIS_TARDE';
-
-  if (
-    s === 'PENDENTE' ||
-    s === 'ATENDEU' ||
-    s === 'OUTRA_CIDADE' ||
-    s === 'NAO_ATENDEU' ||
-    s === 'CAIXA_POSTAL' ||
-    s === 'LIGAR_MAIS_TARDE' ||
-    s === 'NUMERO_NAO_EXISTE'
-  )
-    return s as Status;
-
-  return 'PENDENTE';
-}
-
-function csvToAppRows(csv: string, parteFallback = 'P01'): { parte: string; rows: Row[] } {
+function csvToRows(csv: string): Row[] {
   const { rows } = parseCsv(csv);
-  if (!rows.length) return { parte: parteFallback, rows: [] };
+  if (!rows.length) return [];
 
-  const first = rows[0];
-  const parte = pickKey(first, ['Nº PESQ.', 'N_PESQ', 'N PESQ', 'N PESQ.']) || parteFallback;
-
-  const out: Row[] = rows.map((r, idx) => {
+  return rows.map((r, idx) => {
     const IDP = pickKey(r, ['IDP', 'Idp', 'idp', 'ID']) || String(idx + 1);
 
     const ESTADO = pickKey(r, ['ESTADO', 'UF', 'Uf']) || '';
@@ -331,12 +231,55 @@ function csvToAppRows(csv: string, parteFallback = 'P01'): { parte: string; rows
       OBSERVACAO: String(obsCsv || ''),
     };
   });
+}
 
-  return { parte: String(parte || parteFallback), rows: out };
+function statusText(s: Status) {
+  if (s === 'ATENDEU') return 'CONCLUÍDO • ATENDEU';
+  if (s === 'OUTRA_CIDADE') return 'CONCLUÍDO • OUTRA CIDADE';
+  if (s === 'NAO_ATENDEU' || s === 'CAIXA_POSTAL') return 'CONCLUÍDO • NÃO ATENDEU/CAIXA POSTAL';
+  if (s === 'LIGAR_MAIS_TARDE') return 'CONCLUÍDO • LIGAR MAIS TARDE';
+  if (s === 'NUMERO_NAO_EXISTE') return 'CONCLUÍDO • NÚMERO NÃO EXISTE';
+  return 'PENDENTE';
+}
+
+function statusVars(s: Status) {
+  switch (s) {
+    case 'ATENDEU':
+      return { bd: 'var(--success)', bg: 'rgba(34,197,94,.14)' };
+    case 'OUTRA_CIDADE':
+      return { bd: 'var(--warning)', bg: 'rgba(245,158,11,.14)' };
+    case 'LIGAR_MAIS_TARDE':
+      return { bd: 'var(--blueDark)', bg: 'rgba(30,58,138,.18)' };
+    case 'NUMERO_NAO_EXISTE':
+      return { bd: 'var(--blueLight)', bg: 'rgba(56,189,248,.16)' };
+    case 'NAO_ATENDEU':
+    case 'CAIXA_POSTAL':
+      return { bd: 'var(--danger)', bg: 'rgba(239,68,68,.14)' };
+    default:
+      return { bd: 'var(--border)', bg: 'rgba(255,255,255,.06)' };
+  }
+}
+
+function rowBg(status: Status) {
+  switch (status) {
+    case 'NAO_ATENDEU':
+    case 'CAIXA_POSTAL':
+      return 'rgba(239,68,68,.16)';
+    case 'OUTRA_CIDADE':
+      return 'rgba(245,158,11,.16)';
+    case 'ATENDEU':
+      return 'rgba(34,197,94,.16)';
+    case 'LIGAR_MAIS_TARDE':
+      return 'rgba(30,58,138,.16)';
+    case 'NUMERO_NAO_EXISTE':
+      return 'rgba(56,189,248,.14)';
+    default:
+      return 'transparent';
+  }
 }
 
 // =========================
-// UI PIECES
+// UI
 // =========================
 function StatusPill({ status }: { status: Status }) {
   const c = statusVars(status);
@@ -376,12 +319,12 @@ function ActionButton({
     kind === 'danger'
       ? { border: '1px solid rgba(239,68,68,.45)', background: 'rgba(239,68,68,.14)' }
       : kind === 'warning'
-        ? { border: '1px solid rgba(245,158,11,.45)', background: 'rgba(245,158,11,.14)' }
-        : kind === 'blueDark'
-          ? { border: '1px solid rgba(30,58,138,.55)', background: 'rgba(30,58,138,.18)' }
-          : kind === 'blueLight'
-            ? { border: '1px solid rgba(56,189,248,.55)', background: 'rgba(56,189,248,.16)' }
-            : { border: '1px solid rgba(34,197,94,.45)', background: 'rgba(34,197,94,.14)' };
+      ? { border: '1px solid rgba(245,158,11,.45)', background: 'rgba(245,158,11,.14)' }
+      : kind === 'blueDark'
+      ? { border: '1px solid rgba(30,58,138,.55)', background: 'rgba(30,58,138,.18)' }
+      : kind === 'blueLight'
+      ? { border: '1px solid rgba(56,189,248,.55)', background: 'rgba(56,189,248,.16)' }
+      : { border: '1px solid rgba(34,197,94,.45)', background: 'rgba(34,197,94,.14)' };
 
   return (
     <button
@@ -437,7 +380,6 @@ function MiniTel({
         {label} 📞
       </button>
 
-      {/* ✅ copiar SOMENTE telefone */}
       <button
         disabled={!value}
         onClick={(e) => {
@@ -462,6 +404,7 @@ function MiniTel({
     </div>
   );
 }
+
 function RowActions({
   row,
   onToggleStatus,
@@ -487,12 +430,10 @@ function RowActions({
           🔴 Não atendeu/caixa postal
         </ActionButton>
 
-        {/* ✅ OUTRA CIDADE com POPUP */}
         <ActionButton
           active={row.STATUS === 'OUTRA_CIDADE'}
           kind="warning"
           onClick={() => {
-            // se está indo para OUTRA_CIDADE, abre popup (e salva observação)
             if (row.STATUS !== 'OUTRA_CIDADE') onSetObsForOutraCidade();
             onToggleStatus('OUTRA_CIDADE');
           }}
@@ -500,7 +441,11 @@ function RowActions({
           🟠 Outra cidade
         </ActionButton>
 
-        <ActionButton active={row.STATUS === 'NUMERO_NAO_EXISTE'} kind="blueLight" onClick={() => onToggleStatus('NUMERO_NAO_EXISTE')}>
+        <ActionButton
+          active={row.STATUS === 'NUMERO_NAO_EXISTE'}
+          kind="blueLight"
+          onClick={() => onToggleStatus('NUMERO_NAO_EXISTE')}
+        >
           🔵 Número não existe
         </ActionButton>
 
@@ -560,7 +505,6 @@ function FragmentRow({
           <StatusPill status={row.STATUS} />
         </td>
 
-        {/* ✅ COPIAR SOMENTE IDP */}
         <td
           style={{ ...styles.td, cursor: 'copy' }}
           title="Clique para copiar IDP"
@@ -572,7 +516,6 @@ function FragmentRow({
           {row.IDP}
         </td>
 
-        {/* ❌ SEM COPIAR nessas colunas */}
         {geoCols.estado ? <td style={styles.td}>{row.ESTADO || '—'}</td> : null}
         {geoCols.cidade ? <td style={styles.td}>{row.CIDADE || '—'}</td> : null}
         {geoCols.regiao ? <td style={styles.td}>{row.REGIAO_CIDADE || '—'}</td> : null}
@@ -615,7 +558,7 @@ function MiniAppTabela() {
   const [error, setError] = useState<string>('');
 
   const [allRows, setAllRows] = useState<Row[]>([]);
-  const [parte, setParte] = useState<string>('');
+  const [expandedId, setExpandedId] = useState<string>('');
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
   const [estadoFilter, setEstadoFilter] = useState<string>('TODOS');
@@ -623,20 +566,18 @@ function MiniAppTabela() {
   const [regiaoFilter, setRegiaoFilter] = useState<string>('TODAS');
 
   const [page, setPage] = useState(1);
-  const [expandedId, setExpandedId] = useState<string>('');
 
   const [toast, setToast] = useState<string>('');
 
-  // alterações pendentes (LINE => {STATUS, OBSERVACAO})
   const [dirty, setDirty] = useState<Record<string, { STATUS: Status; OBSERVACAO: string }>>({});
   const dirtyCount = useMemo(() => Object.keys(dirty).length, [dirty]);
 
-  // 1) FETCH payload por entregaId (PK)
+  // ✅ 1) GET — SOMENTE entregaId
   useEffect(() => {
-    const entregaId = getEntregaPkFromUrl();
+    const entregaId = getEntregaIdOnly();
 
     if (!entregaId) {
-      setError('URL sem entregaId. Abra pelo link com #/?entregaId=...&parte=...');
+      setError('Sem entregaId na URL. Abra com: #/?entregaId=SEU_ID');
       return;
     }
 
@@ -651,16 +592,13 @@ function MiniAppTabela() {
 
         const raw = await resp.text().catch(() => '');
         if (!resp.ok) throw new Error(`HTTP ${resp.status} • ${raw || 'Sem body'}`);
-
-        if (!raw.trim()) {
-          throw new Error('Servidor respondeu vazio (sem JSON). Verifique o webhook /entregas no n8n.');
-        }
+        if (!raw.trim()) throw new Error('Servidor respondeu vazio (sem JSON).');
 
         let data: any;
         try {
           data = JSON.parse(raw);
         } catch {
-          throw new Error(`Resposta não é JSON. Body (início): ${raw.slice(0, 300)}`);
+          throw new Error(`Resposta não é JSON. Início: ${raw.slice(0, 300)}`);
         }
 
         setPayload(Array.isArray(data) ? data : [data]);
@@ -673,35 +611,21 @@ function MiniAppTabela() {
     })();
   }, []);
 
-  // 2) opcional: payload via evento
-  useEffect(() => {
-    const handler = (ev: Event) => {
-      const ce = ev as CustomEvent;
-      const data = ce?.detail;
-      if (Array.isArray(data)) setPayload(data);
-    };
-    window.addEventListener('IBESPE_PAYLOAD', handler as any);
-    return () => window.removeEventListener('IBESPE_PAYLOAD', handler as any);
-  }, []);
-
-  // 3) Quando payload chegar, preenche rows/parte
+  // ✅ 2) Quando payload chegar, converte CSV em rows (sem depender de parte)
   useEffect(() => {
     if (!payload || payload.length === 0) return;
 
     const item = payload[0] as PartePayload;
-    const parteFromApi = String(item?.chave_parte || 'P01');
     const csv = String(item?.csv || '');
 
-    if (!csv) {
-      setParte(parteFromApi);
+    if (!csv.trim()) {
       setAllRows([]);
       setError('Payload chegou, mas não veio o CSV.');
       return;
     }
 
-    const parsed = csvToAppRows(csv, parteFromApi);
-    setParte(parsed.parte || parteFromApi);
-    setAllRows(parsed.rows);
+    const rows = csvToRows(csv);
+    setAllRows(rows);
 
     setDirty({});
     setExpandedId('');
@@ -752,24 +676,18 @@ function MiniAppTabela() {
         const v = String(r.ESTADO || '').trim();
         if (v !== estadoFilter) return false;
       }
-
       if (geoCols.cidade && cidadeFilter !== 'TODAS') {
         const v = String(r.CIDADE || '').trim();
         if (v !== cidadeFilter) return false;
       }
-
       if (geoCols.regiao && regiaoFilter !== 'TODAS') {
         const v = String(r.REGIAO_CIDADE || '').trim();
         if (v !== regiaoFilter) return false;
       }
 
-      if (statusFilter === 'PENDENTES') {
-        if (r.STATUS !== 'PENDENTE') return false;
-      } else if (statusFilter === 'CONCLUIDOS') {
-        if (r.STATUS === 'PENDENTE') return false;
-      } else if (statusFilter !== 'TODOS') {
-        if (r.STATUS !== statusFilter) return false;
-      }
+      if (statusFilter === 'PENDENTES') return r.STATUS === 'PENDENTE';
+      if (statusFilter === 'CONCLUIDOS') return r.STATUS !== 'PENDENTE';
+      if (statusFilter !== 'TODOS') return r.STATUS === statusFilter;
 
       return true;
     });
@@ -792,10 +710,6 @@ function MiniAppTabela() {
     setAllRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   }
 
-  /**
-   * ✅ Atualiza "dirty" para autosave:
-   * sempre que alterar status OU observação
-   */
   function markDirty(row: Row, patch: { STATUS?: Status; OBSERVACAO?: string }) {
     const nextStatus = patch.STATUS ?? row.STATUS;
     const nextObs = patch.OBSERVACAO ?? row.OBSERVACAO ?? '';
@@ -816,77 +730,14 @@ function MiniAppTabela() {
     markDirty(row, { STATUS: newStatus });
   }
 
-  /**
-   * ✅ Quando clicar em OUTRA_CIDADE e estiver mudando pra OUTRA_CIDADE:
-   * abre popup e salva em OBSERVACAO
-   */
   function askOutraCidadeObs(row: Row) {
     const current = String(row.OBSERVACAO || '').trim();
     const val = window.prompt('Qual cidade?', current || '');
-    if (val === null) return; // cancelou
+    if (val === null) return;
     const cleaned = String(val || '').trim();
     updateRow(row.id, { OBSERVACAO: cleaned });
     markDirty(row, { OBSERVACAO: cleaned });
   }
-
-  // AUTOSAVE (debounce 800ms)
-  useEffect(() => {
-    const entrega_id = getEntregaPkFromUrl();
-    const telegram_id = getTelegramIdStrict();
-    const parteUrl = getParteFromUrl() || parte || (payload?.[0]?.chave_parte ? String(payload[0].chave_parte) : '');
-
-    if (!entrega_id || !parteUrl) return;
-
-    const entries = Object.entries(dirty);
-    if (!entries.length) return;
-
-    const t = setTimeout(async () => {
-      const changes = entries.map(([lineStr, v]) => ({
-        LINE: Number(lineStr),
-        STATUS: v.STATUS,
-        OBSERVACAO: v.OBSERVACAO || '',
-        ts: new Date().toISOString(),
-      }));
-
-      try {
-        setSaving(true);
-        setSaveError('');
-
-        const resp = await fetch(API_SAVE_PARTE, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          cache: 'no-store',
-          body: JSON.stringify({
-            entrega_id,
-            telegram_id,
-            chave_parte: parteUrl,
-            changes,
-          }),
-        });
-
-        if (!resp.ok) {
-          const txt = await resp.text().catch(() => '');
-          throw new Error(`HTTP ${resp.status} • ${txt || 'Sem body'}`);
-        }
-
-        setDirty({});
-        setLastSavedAt(new Date().toLocaleTimeString());
-      } catch (e: any) {
-        const msg = String(e?.message || e);
-        if (msg.toLowerCase().includes('failed to fetch')) {
-          setSaveError(
-            'Failed to fetch — normalmente é CORS, URL do webhook errada, SSL ou o endpoint /parte/salvar não está publicado/ativo no n8n. Verifique Network/Console.'
-          );
-        } else {
-          setSaveError(msg);
-        }
-      } finally {
-        setSaving(false);
-      }
-    }, 800);
-
-    return () => clearTimeout(t);
-  }, [saveTick, dirty, parte, payload]);
 
   function callPhoneForRow(row: Row, which: 'TF1' | 'TF2') {
     const tel = safeTel(row[which]);
@@ -919,13 +770,59 @@ function MiniAppTabela() {
     }
   }
 
+  // ✅ AUTOSAVE (não precisa de parte pra carregar; aqui só salva mudanças)
+  useEffect(() => {
+    const entrega_id = getEntregaIdOnly();
+    if (!entrega_id) return;
+
+    const entries = Object.entries(dirty);
+    if (!entries.length) return;
+
+    const t = setTimeout(async () => {
+      const changes = entries.map(([lineStr, v]) => ({
+        LINE: Number(lineStr),
+        STATUS: v.STATUS,
+        OBSERVACAO: v.OBSERVACAO || '',
+        ts: new Date().toISOString(),
+      }));
+
+      try {
+        setSaving(true);
+        setSaveError('');
+
+        const resp = await fetch(API_SAVE_PARTE, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({
+            entrega_id,
+            // chave_parte: opcional — se o backend exigir, ele vai reclamar aqui
+            changes,
+          }),
+        });
+
+        const txt = await resp.text().catch(() => '');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} • ${txt || 'Sem body'}`);
+
+        setDirty({});
+        setLastSavedAt(new Date().toLocaleTimeString());
+      } catch (e: any) {
+        setSaveError(String(e?.message || e));
+      } finally {
+        setSaving(false);
+      }
+    }, 800);
+
+    return () => clearTimeout(t);
+  }, [saveTick, dirty]);
+
   const pendentes = useMemo(() => filteredRows.filter((r) => r.STATUS === 'PENDENTE').length, [filteredRows]);
   const concluidos = useMemo(() => filteredRows.filter((r) => r.STATUS !== 'PENDENTE').length, [filteredRows]);
   const hasData = allRows.length > 0;
 
   const hintLink = useMemo(() => {
     const base = `${window.location.origin}${window.location.pathname}#/?`;
-    return `${base}entregaId=SEU_ENTREGA_ID&parte=P03`;
+    return `${base}entregaId=SEU_ENTREGA_ID`;
   }, []);
 
   function PaginationControls() {
@@ -958,7 +855,7 @@ function MiniAppTabela() {
             <div style={{ fontWeight: 900, fontSize: 14 }}>{loading ? 'Carregando…' : 'Aguardando dados…'}</div>
 
             <div style={{ color: 'var(--text-muted)', marginTop: 6, fontSize: 12 }}>
-              {loading ? 'Buscando o CSV no servidor (n8n → Supabase).' : 'Abra com entregaId para carregar. Exemplo:'}
+              {loading ? 'Buscando o CSV no servidor (n8n → DB).' : 'Abra com entregaId para carregar. Exemplo:'}
             </div>
 
             {!loading && (
@@ -981,9 +878,6 @@ function MiniAppTabela() {
               <div style={{ marginTop: 10, padding: 10, border: '1px solid var(--danger)', borderRadius: 10 }}>
                 <div style={{ fontWeight: 900 }}>⚠️ Erro</div>
                 <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>{error}</div>
-                <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6 }}>
-                  Se aparecer “CORS” no console, seu n8n precisa liberar Access-Control-Allow-Origin.
-                </div>
               </div>
             ) : null}
           </div>
@@ -992,12 +886,10 @@ function MiniAppTabela() {
         <>
           <div style={styles.topbarLocal}>
             <div style={{ minWidth: 240 }}>
-              <div style={styles.h1}>
-                Atendimento {parte ? <span style={{ color: 'var(--text-muted)' }}>• {parte}</span> : null}
-              </div>
+              <div style={styles.h1}>Atendimento</div>
 
               <div style={styles.sub}>
-                Registros: <b>{filteredRows.length}</b> (filtrado) • Concluídos: <b>{concluidos}</b> • Pendentes: <b>{pendentes}</b>
+                Registros: <b>{filteredRows.length}</b> • Concluídos: <b>{concluidos}</b> • Pendentes: <b>{pendentes}</b>
               </div>
 
               <div style={{ ...styles.sub, marginTop: 6 }}>
@@ -1153,18 +1045,6 @@ function MiniAppTabela() {
               <PaginationControls />
             </div>
           </div>
-
-          <style>{`
-            @media (max-width: 1024px){
-              table { min-width: 760px !important; }
-            }
-            @media (max-width: 820px){
-              table { min-width: 720px !important; }
-            }
-            @media (max-width: 680px){
-              table { min-width: 680px !important; }
-            }
-          `}</style>
         </>
       )}
     </div>
