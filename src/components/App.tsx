@@ -1,9 +1,12 @@
-// App.tsx (mesmo arquivo)
-// Mudanças pedidas:
+// App.tsx (arquivo completo)
+// ✅ Últimas mudanças aplicadas:
 // 1) Clique na linha -> abre MODAL com todos os botões (não expande abaixo).
-// 2) Remove "CONCLUÍDO • ..." do status (pill e texto). Agora mostra só: "ATENDEU", "OUTRA CIDADE (Cidade)", "NÃO ATENDEU/CAIXA POSTAL", "NÚMERO NÃO EXISTE", "RETORNO (HH:MM)", "PENDENTE".
-// 3) "Outra cidade" passa a guardar e exibir "OUTRA_CIDADE - NOME" e mostrar ao lado no status.
-// 4) Cor de linha selecionada (quando modal aberto) mais forte.
+// 2) Remove "CONCLUÍDO • ..." do status. Status pill agora mostra só: PENDENTE, ATENDEU, OUTRA CIDADE • X, NÃO ATENDEU/CAIXA POSTAL, NÚMERO NÃO EXISTE, RETORNO • HH:MM.
+// 3) "Outra cidade" guarda e exibe "OUTRA_CIDADE - NOME" e mostra ao lado no status.
+// 4) Cor da linha selecionada (quando modal aberto) mais forte.
+// 5) Botão de copiar telefone: texto "COPIAR TF1" / "COPIAR TF2" (sem ícone prancheta).
+// 6) Removido copiar ao clicar no IDP na tabela (copiar só no botão do modal).
+// 7) Toast virou snackbar pequeno embaixo (fecha sozinho em 3s).
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
@@ -434,7 +437,7 @@ function MiniTel({
           border: '1px solid rgba(0,0,0,.18)',
           background: 'rgba(0,0,0,.06)',
           color: 'var(--text)',
-          padding: '9px 10px',
+          padding: '9px 12px',
           borderRadius: 10,
           fontSize: 12,
           fontWeight: 900,
@@ -443,7 +446,7 @@ function MiniTel({
         }}
         title={value ? `Copiar ${label}` : ''}
       >
-        📋
+        {`COPIAR ${label}`}
       </button>
     </div>
   );
@@ -554,10 +557,7 @@ function OutraCidadeModal({
             <button style={styles.btn} onClick={onCancel}>
               Cancelar
             </button>
-            <button
-              style={{ ...styles.btn, ...styles.btnPrimary }}
-              onClick={() => onConfirm(String(value || '').trim())}
-            >
+            <button style={{ ...styles.btn, ...styles.btnPrimary }} onClick={() => onConfirm(String(value || '').trim())}>
               Confirmar
             </button>
           </div>
@@ -607,7 +607,6 @@ function RowActionsModal({
         </div>
 
         <div style={{ padding: 12, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          {/* STATUS */}
           <ActionButton active={isNaoAtendeuOuCaixa} kind="warning" onClick={() => onToggleStatus('NAO_ATENDEU')}>
             🟡 Não atendeu/caixa postal
           </ActionButton>
@@ -649,28 +648,12 @@ function RowActionsModal({
         <div style={{ padding: 12, borderTop: '1px solid var(--border)', background: 'var(--surfaceMuted)' }}>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
-                style={{ ...styles.btn, ...styles.btnPrimary }}
-                onClick={() => onCopy('IDP', row.IDP)}
-                title="Copiar IDP"
-              >
+              <button style={{ ...styles.btn, ...styles.btnPrimary }} onClick={() => onCopy('IDP', row.IDP)} title="Copiar IDP">
                 Copiar IDP 📋
               </button>
 
-              <MiniTel
-                label="TF1"
-                value={row.TF1}
-                disabled={!tf1}
-                onClick={() => onCall('TF1')}
-                onCopy={() => onCopy('TF1', row.TF1)}
-              />
-              <MiniTel
-                label="TF2"
-                value={row.TF2}
-                disabled={!tf2}
-                onClick={() => onCall('TF2')}
-                onCopy={() => onCopy('TF2', row.TF2)}
-              />
+              <MiniTel label="TF1" value={row.TF1} disabled={!tf1} onClick={() => onCall('TF1')} onCopy={() => onCopy('TF1', row.TF1)} />
+              <MiniTel label="TF2" value={row.TF2} disabled={!tf2} onClick={() => onCall('TF2')} onCopy={() => onCopy('TF2', row.TF2)} />
             </div>
 
             <button style={styles.btn} onClick={onClose}>
@@ -704,6 +687,8 @@ function MiniAppTabela() {
   const [regiaoFilter, setRegiaoFilter] = useState<string>('TODAS');
 
   const [page, setPage] = useState(1);
+
+  // ✅ snackbar
   const [toast, setToast] = useState<string>('');
 
   const [dirty, setDirty] = useState<Record<string, { STATUS: Status; OBSERVACAO: string }>>({});
@@ -712,7 +697,6 @@ function MiniAppTabela() {
   // MODAIS
   const [actionsOpen, setActionsOpen] = useState(false);
   const [activeRowId, setActiveRowId] = useState<string>('');
-
   const activeRow = useMemo(() => allRows.find((r) => r.id === activeRowId) || null, [allRows, activeRowId]);
 
   const [retornoModalOpen, setRetornoModalOpen] = useState(false);
@@ -933,11 +917,11 @@ function MiniAppTabela() {
 
     try {
       await navigator.clipboard.writeText(v);
-      setToast(`Copiado (${label}): ${v}`);
-      setTimeout(() => setToast(''), 1600);
+      setToast(`${label} copiado: ${v}`);
+      setTimeout(() => setToast(''), 3000);
     } catch {
       setToast('Não foi possível copiar.');
-      setTimeout(() => setToast(''), 1600);
+      setTimeout(() => setToast(''), 3000);
     }
   }
 
@@ -1028,12 +1012,7 @@ function MiniAppTabela() {
         onOpenOutraCidade={() => activeRow && openOutraCidadePicker(activeRow)}
       />
 
-      <RetornoModal
-        open={retornoModalOpen}
-        initialValue={retornoInitial}
-        onCancel={() => setRetornoModalOpen(false)}
-        onConfirm={confirmRetorno}
-      />
+      <RetornoModal open={retornoModalOpen} initialValue={retornoInitial} onCancel={() => setRetornoModalOpen(false)} onConfirm={confirmRetorno} />
 
       <OutraCidadeModal
         open={outraCidadeModalOpen}
@@ -1104,12 +1083,6 @@ function MiniAppTabela() {
                   ❌ {saveError}
                 </div>
               )}
-
-              {toast && (
-                <div style={{ marginTop: 8, padding: 10, border: '1px solid rgba(0,0,0,.18)', borderRadius: 10, fontSize: 12, background: 'var(--surface)' }}>
-                  ✅ {toast}
-                </div>
-              )}
             </div>
 
             <div style={styles.filtersRow}>
@@ -1177,7 +1150,7 @@ function MiniAppTabela() {
             <div style={styles.cardHeader}>
               <div>
                 <div style={styles.cardTitle}>Tabela (20 por página)</div>
-                <div style={styles.cardSub}>Clique na linha para abrir as ações em um modal. Copiar só em IDP e telefones.</div>
+                <div style={styles.cardSub}>Clique na linha para abrir as ações em um modal.</div>
               </div>
             </div>
 
@@ -1201,7 +1174,6 @@ function MiniAppTabela() {
                   {pageRows.map((r) => {
                     const baseBg = rowBg(r.STATUS);
 
-                    // ✅ linha "selecionada" (modal aberto) mais forte e puxando a cor do status
                     const isSelected = actionsOpen && activeRowId === r.id;
                     const selectedBg =
                       r.STATUS === 'OUTRA_CIDADE'
@@ -1230,14 +1202,8 @@ function MiniAppTabela() {
                           <StatusPill row={r} />
                         </td>
 
-                        <td
-                          style={{ ...styles.td, cursor: 'copy' }}
-                          title="Clique para copiar IDP"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            copyToClipboard('IDP', r.IDP);
-                          }}
-                        >
+                        {/* ✅ IDP não copia mais ao clicar */}
+                        <td style={styles.td} title="Copiar IDP pelo botão no modal">
                           {r.IDP}
                         </td>
 
@@ -1273,6 +1239,9 @@ function MiniAppTabela() {
           </div>
         </>
       )}
+
+      {/* ✅ SNACKBAR (popup pequeno embaixo, some em 3s) */}
+      {toast ? <div style={styles.snackbar}>{toast}</div> : null}
     </div>
   );
 }
@@ -1415,6 +1384,26 @@ const styles: Record<string, React.CSSProperties> = {
   },
   btnActive: {
     outline: '3px solid rgba(0,0,0,.12)',
+  },
+
+  // ✅ Snackbar embaixo
+  snackbar: {
+    position: 'fixed',
+    left: '50%',
+    bottom: 14,
+    transform: 'translateX(-50%)',
+    background: 'rgba(0,0,0,.88)',
+    color: '#fff',
+    padding: '10px 12px',
+    borderRadius: 999,
+    fontSize: 13,
+    fontWeight: 900,
+    maxWidth: '92vw',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    zIndex: 10000,
+    boxShadow: '0 12px 30px rgba(0,0,0,.25)',
   },
 };
 
