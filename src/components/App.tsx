@@ -1,3 +1,10 @@
+// App.tsx (mesmo arquivo)
+// Mudanças pedidas:
+// 1) Clique na linha -> abre MODAL com todos os botões (não expande abaixo).
+// 2) Remove "CONCLUÍDO • ..." do status (pill e texto). Agora mostra só: "ATENDEU", "OUTRA CIDADE (Cidade)", "NÃO ATENDEU/CAIXA POSTAL", "NÚMERO NÃO EXISTE", "RETORNO (HH:MM)", "PENDENTE".
+// 3) "Outra cidade" passa a guardar e exibir "OUTRA_CIDADE - NOME" e mostrar ao lado no status.
+// 4) Cor de linha selecionada (quando modal aberto) mais forte.
+
 import React, { useEffect, useMemo, useState } from 'react';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 
@@ -12,7 +19,7 @@ type Status =
 
 type PartePayload = {
   csv?: string;
-  chave_parte?: string; // pode vir do backend, mas NÃO é necessário pra carregar
+  chave_parte?: string;
 };
 
 type Row = {
@@ -39,14 +46,14 @@ const API_GET_ENTREGA = 'https://n8n.srv962474.hstgr.cloud/webhook/entregas';
 const API_SAVE_PARTE = 'https://n8n.srv962474.hstgr.cloud/webhook/parte/salvar';
 
 // =========================
-// THEME (fundo claro + tabela branca)
+// THEME
 // =========================
 const globalCss = `
 :root{
   --bg: #FFFFFF;
-  --surface: #FFFFFF;       /* cards e tabela */
-  --surface-2: #FFFFFF;     /* sub-cards e linhas expandidas */
-  --surfaceMuted: #F3F4F6;  /* headers / barras */
+  --surface: #FFFFFF;
+  --surface-2: #FFFFFF;
+  --surfaceMuted: #F3F4F6;
   --text: #000000;
   --text-muted: #374151;
   --border: #D1D5DB;
@@ -83,7 +90,7 @@ button:disabled{ opacity: .55; cursor: not-allowed !important; }
 `;
 
 // =========================
-// HELPERS — SOMENTE ENTREGAID
+// HELPERS
 // =========================
 function getEntregaIdOnly(): string {
   const hash = window.location.hash || '';
@@ -106,7 +113,6 @@ function safeTel(v: string) {
   return String(v || '').trim().replace(/[^\d+]/g, '');
 }
 
-// só adiciona "0" na hora de ligar (não mexe na exibição/CSV)
 function telToDial(v: string) {
   const digits = safeTel(v).replace(/[^\d]/g, '');
   if (!digits) return '';
@@ -247,29 +253,36 @@ function csvToRows(csv: string): Row[] {
   });
 }
 
+// OBS helpers
 function retornoLabelFromObs(obs: string) {
   const t = String(obs || '').trim();
   const m = t.match(/RETORNO\s*[-–—]?\s*(\d{1,2}:\d{2})/i);
   return m?.[1] || '';
 }
-
 function isRetornoObs(obs: string) {
   return /RETORNO\s*[-–—]?\s*\d{1,2}:\d{2}/i.test(String(obs || '').trim()) || /^RETORNO$/i.test(String(obs || '').trim());
 }
-
 function outraCidadeFromObs(obs: string) {
   const t = String(obs || '').trim();
   const m = t.match(/OUTRA_CIDADE\s*[-–—]?\s*(.*)$/i);
   return (m?.[1] || '').trim();
 }
+function isOutraCidadeObs(obs: string) {
+  return /^OUTRA_CIDADE(\s*[-–—].*)?$/i.test(String(obs || '').trim());
+}
 
+// ✅ status sem "CONCLUÍDO"
 function statusText(row: Row) {
   const s = row.STATUS;
 
-  if (s === 'ATENDEU') return 'CONCLUÍDO • ATENDEU';
-  if (s === 'OUTRA_CIDADE') return 'CONCLUÍDO • OUTRA CIDADE';
-  if (s === 'NAO_ATENDEU' || s === 'CAIXA_POSTAL') return 'CONCLUÍDO • NÃO ATENDEU/CAIXA POSTAL';
-  if (s === 'NUMERO_NAO_EXISTE') return 'CONCLUÍDO • NÚMERO NÃO EXISTE';
+  if (s === 'ATENDEU') return 'ATENDEU';
+  if (s === 'NAO_ATENDEU' || s === 'CAIXA_POSTAL') return 'NÃO ATENDEU/CAIXA POSTAL';
+  if (s === 'NUMERO_NAO_EXISTE') return 'NÚMERO NÃO EXISTE';
+
+  if (s === 'OUTRA_CIDADE') {
+    const city = outraCidadeFromObs(row.OBSERVACAO);
+    return city ? `OUTRA CIDADE • ${city}` : 'OUTRA CIDADE';
+  }
 
   if (s === 'RETORNO') {
     const hhmm = retornoLabelFromObs(row.OBSERVACAO);
@@ -279,7 +292,6 @@ function statusText(row: Row) {
   return 'PENDENTE';
 }
 
-// cores mais fortes (menos transparente)
 function statusVars(s: Status) {
   switch (s) {
     case 'ATENDEU':
@@ -298,19 +310,20 @@ function statusVars(s: Status) {
   }
 }
 
+// bg base da linha por status (um pouco mais forte)
 function rowBg(status: Status) {
   switch (status) {
     case 'NAO_ATENDEU':
     case 'CAIXA_POSTAL':
-      return 'rgba(245,158,11,.22)';
+      return 'rgba(245,158,11,.28)';
     case 'OUTRA_CIDADE':
-      return 'rgba(249,115,22,.22)';
+      return 'rgba(249,115,22,.28)';
     case 'ATENDEU':
-      return 'rgba(22,163,74,.20)';
+      return 'rgba(22,163,74,.26)';
     case 'RETORNO':
-      return 'rgba(30,58,138,.18)';
+      return 'rgba(30,58,138,.24)';
     case 'NUMERO_NAO_EXISTE':
-      return 'rgba(239,68,68,.20)';
+      return 'rgba(239,68,68,.24)';
     default:
       return 'transparent';
   }
@@ -368,10 +381,7 @@ function ActionButton({
 
   return (
     <button
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
+      onClick={onClick}
       style={{
         ...styles.btnAction,
         ...base,
@@ -400,15 +410,12 @@ function MiniTel({
     <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
       <button
         disabled={disabled}
-        onClick={(e) => {
-          e.stopPropagation();
-          onClick();
-        }}
+        onClick={onClick}
         style={{
           border: '1px solid var(--border)',
           background: disabled ? 'var(--surfaceMuted)' : 'var(--primary)',
           color: disabled ? 'var(--text-muted)' : 'var(--primary-text)',
-          padding: '7px 12px',
+          padding: '9px 12px',
           borderRadius: 10,
           fontSize: 12,
           fontWeight: 900,
@@ -422,15 +429,12 @@ function MiniTel({
 
       <button
         disabled={!value}
-        onClick={(e) => {
-          e.stopPropagation();
-          onCopy();
-        }}
+        onClick={onCopy}
         style={{
           border: '1px solid rgba(0,0,0,.18)',
           background: 'rgba(0,0,0,.06)',
           color: 'var(--text)',
-          padding: '7px 10px',
+          padding: '9px 10px',
           borderRadius: 10,
           fontSize: 12,
           fontWeight: 900,
@@ -445,159 +449,8 @@ function MiniTel({
   );
 }
 
-function RowActions({
-  row,
-  onToggleStatus,
-  onCall,
-  onAskOutraCidade,
-  onOpenRetornoPicker,
-  onCopyPhone,
-}: {
-  row: Row;
-  onToggleStatus: (next: Exclude<Status, 'PENDENTE'>) => void;
-  onCall: (which: 'TF1' | 'TF2') => void;
-  onAskOutraCidade: () => void;
-  onOpenRetornoPicker: () => void;
-  onCopyPhone: (which: 'TF1' | 'TF2') => void;
-}) {
-  const tf1 = safeTel(row.TF1);
-  const tf2 = safeTel(row.TF2);
-
-  const isNaoAtendeuOuCaixa = row.STATUS === 'NAO_ATENDEU' || row.STATUS === 'CAIXA_POSTAL';
-
-  return (
-    <div style={styles.actionsInline}>
-      <div style={styles.inlineGroup}>
-        <ActionButton active={isNaoAtendeuOuCaixa} kind="warning" onClick={() => onToggleStatus('NAO_ATENDEU')}>
-          🟡 Não atendeu/caixa postal
-        </ActionButton>
-
-        <ActionButton
-          active={row.STATUS === 'OUTRA_CIDADE'}
-          kind="orange"
-          onClick={() => {
-            if (row.STATUS !== 'OUTRA_CIDADE') onAskOutraCidade();
-            onToggleStatus('OUTRA_CIDADE');
-          }}
-        >
-          🟠 Outra cidade
-        </ActionButton>
-
-        <ActionButton active={row.STATUS === 'NUMERO_NAO_EXISTE'} kind="danger" onClick={() => onToggleStatus('NUMERO_NAO_EXISTE')}>
-          🔴 Número não existe
-        </ActionButton>
-
-        {/* Retorno: se já é retorno, clique volta pra pendente; se não, abre picker (estilo relógio do celular via input time) */}
-        <ActionButton
-          active={row.STATUS === 'RETORNO'}
-          kind="blueDark"
-          onClick={() => {
-            if (row.STATUS === 'RETORNO') {
-              onToggleStatus('RETORNO'); // toggle pra pendente
-              return;
-            }
-            onOpenRetornoPicker(); // só vira retorno após confirmar
-          }}
-        >
-          🟦 Retorno
-        </ActionButton>
-
-        <ActionButton active={row.STATUS === 'ATENDEU'} kind="success" onClick={() => onToggleStatus('ATENDEU')}>
-          🟢 Atendeu
-        </ActionButton>
-      </div>
-
-      <div style={styles.inlineGroup}>
-        <MiniTel label="TF1" value={row.TF1} disabled={!tf1} onClick={() => onCall('TF1')} onCopy={() => onCopyPhone('TF1')} />
-        <MiniTel label="TF2" value={row.TF2} disabled={!tf2} onClick={() => onCall('TF2')} onCopy={() => onCopyPhone('TF2')} />
-      </div>
-    </div>
-  );
-}
-
-function FragmentRow({
-  row,
-  isExpanded,
-  baseBg,
-  onToggleExpand,
-  onToggleStatus,
-  onCall,
-  geoCols,
-  onCopyIdp,
-  onAskOutraCidade,
-  onOpenRetornoPicker,
-  onCopyPhone,
-}: {
-  row: Row;
-  isExpanded: boolean;
-  baseBg: string;
-  onToggleExpand: () => void;
-  onToggleStatus: (next: Exclude<Status, 'PENDENTE'>) => void;
-  onCall: (which: 'TF1' | 'TF2') => void;
-  geoCols: { estado: boolean; cidade: boolean; regiao: boolean };
-  onCopyIdp: () => void;
-  onAskOutraCidade: () => void;
-  onOpenRetornoPicker: () => void;
-  onCopyPhone: (which: 'TF1' | 'TF2') => void;
-}) {
-  const selectedBg = 'rgba(0,0,0,.05)';
-
-  return (
-    <>
-      <tr
-        style={{
-          ...styles.tr,
-          background: isExpanded ? selectedBg : baseBg,
-          outline: isExpanded ? '2px solid rgba(0,0,0,.10)' : '2px solid transparent',
-        }}
-        onClick={onToggleExpand}
-      >
-        <td style={styles.td}>
-          <StatusPill row={row} />
-        </td>
-
-        <td
-          style={{ ...styles.td, cursor: 'copy' }}
-          title="Clique para copiar IDP"
-          onClick={(e) => {
-            e.stopPropagation();
-            onCopyIdp();
-          }}
-        >
-          {row.IDP}
-        </td>
-
-        {geoCols.estado ? <td style={styles.td}>{row.ESTADO || '—'}</td> : null}
-        {geoCols.cidade ? <td style={styles.td}>{row.CIDADE || '—'}</td> : null}
-        {geoCols.regiao ? <td style={styles.td}>{row.REGIAO_CIDADE || '—'}</td> : null}
-
-        <td style={styles.td}>{row.TF1 || '—'}</td>
-        <td style={styles.td}>{row.TF2 || '—'}</td>
-      </tr>
-
-      {isExpanded ? (
-        <tr style={{ background: 'var(--surface-2)' }}>
-          <td
-            colSpan={2 + (geoCols.estado ? 1 : 0) + (geoCols.cidade ? 1 : 0) + (geoCols.regiao ? 1 : 0) + 2}
-            style={{ padding: 0, borderBottom: '1px solid var(--border)' }}
-          >
-            <RowActions
-              row={row}
-              onToggleStatus={onToggleStatus}
-              onCall={onCall}
-              onAskOutraCidade={onAskOutraCidade}
-              onOpenRetornoPicker={onOpenRetornoPicker}
-              onCopyPhone={onCopyPhone}
-            />
-          </td>
-        </tr>
-      ) : null}
-    </>
-  );
-}
-
 // =========================
-// MODAL RETORNO (picker tipo relógio via input time)
+// MODAL: Retorno (time)
 // =========================
 function RetornoModal({
   open,
@@ -619,33 +472,11 @@ function RetornoModal({
   if (!open) return null;
 
   return (
-    <div
-      onClick={onCancel}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,.35)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 14,
-        zIndex: 9999,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: 'min(420px, 96vw)',
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: 14,
-          boxShadow: 'var(--shadow)',
-          overflow: 'hidden',
-        }}
-      >
-        <div style={{ padding: 12, background: 'var(--surfaceMuted)', borderBottom: '1px solid var(--border)' }}>
-          <div style={{ fontWeight: 900, fontSize: 14, color: 'var(--text)' }}>⏰ Agendar retorno</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Selecione a hora e o minuto</div>
+    <div onClick={onCancel} style={stylesModal.overlay}>
+      <div onClick={(e) => e.stopPropagation()} style={stylesModal.box}>
+        <div style={stylesModal.header}>
+          <div style={stylesModal.title}>⏰ Agendar retorno</div>
+          <div style={stylesModal.sub}>Selecione a hora e o minuto</div>
         </div>
 
         <div style={{ padding: 12 }}>
@@ -654,24 +485,13 @@ function RetornoModal({
             step={60}
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '12px 12px',
-              borderRadius: 12,
-              border: '1px solid var(--border)',
-              background: 'var(--surface-2)',
-              color: 'var(--text)',
-              fontSize: 16,
-              fontWeight: 900,
-              outline: 'none',
-            }}
+            style={stylesModal.input}
           />
 
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+          <div style={stylesModal.rowBtns}>
             <button style={styles.btn} onClick={onCancel}>
               Cancelar
             </button>
-
             <button
               style={{ ...styles.btn, ...styles.btnPrimary }}
               onClick={() => {
@@ -684,6 +504,177 @@ function RetornoModal({
               }}
             >
               Confirmar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =========================
+// MODAL: Outra cidade
+// =========================
+function OutraCidadeModal({
+  open,
+  initialValue,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  initialValue: string;
+  onCancel: () => void;
+  onConfirm: (city: string) => void;
+}) {
+  const [value, setValue] = useState(initialValue || '');
+
+  useEffect(() => {
+    setValue(initialValue || '');
+  }, [initialValue, open]);
+
+  if (!open) return null;
+
+  return (
+    <div onClick={onCancel} style={stylesModal.overlay}>
+      <div onClick={(e) => e.stopPropagation()} style={stylesModal.box}>
+        <div style={stylesModal.header}>
+          <div style={stylesModal.title}>🟠 Outra cidade</div>
+          <div style={stylesModal.sub}>Digite o nome da cidade</div>
+        </div>
+
+        <div style={{ padding: 12 }}>
+          <input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="Ex: Santos"
+            style={stylesModal.textInput}
+          />
+
+          <div style={stylesModal.rowBtns}>
+            <button style={styles.btn} onClick={onCancel}>
+              Cancelar
+            </button>
+            <button
+              style={{ ...styles.btn, ...styles.btnPrimary }}
+              onClick={() => onConfirm(String(value || '').trim())}
+            >
+              Confirmar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =========================
+// MODAL: Ações da linha (todos os botões)
+// =========================
+function RowActionsModal({
+  open,
+  row,
+  onClose,
+  onToggleStatus,
+  onCall,
+  onCopy,
+  onOpenRetorno,
+  onOpenOutraCidade,
+}: {
+  open: boolean;
+  row: Row | null;
+  onClose: () => void;
+  onToggleStatus: (next: Exclude<Status, 'PENDENTE'>) => void;
+  onCall: (which: 'TF1' | 'TF2') => void;
+  onCopy: (label: string, value: string) => void;
+  onOpenRetorno: () => void;
+  onOpenOutraCidade: () => void;
+}) {
+  if (!open || !row) return null;
+
+  const tf1 = safeTel(row.TF1);
+  const tf2 = safeTel(row.TF2);
+
+  const isNaoAtendeuOuCaixa = row.STATUS === 'NAO_ATENDEU' || row.STATUS === 'CAIXA_POSTAL';
+
+  return (
+    <div onClick={onClose} style={stylesModal.overlay}>
+      <div onClick={(e) => e.stopPropagation()} style={{ ...stylesModal.box, width: 'min(560px, 96vw)' }}>
+        <div style={stylesModal.header}>
+          <div style={stylesModal.title}>Ações • IDP {row.IDP}</div>
+          <div style={stylesModal.sub}>
+            Status atual: <b>{statusText(row)}</b>
+          </div>
+        </div>
+
+        <div style={{ padding: 12, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* STATUS */}
+          <ActionButton active={isNaoAtendeuOuCaixa} kind="warning" onClick={() => onToggleStatus('NAO_ATENDEU')}>
+            🟡 Não atendeu/caixa postal
+          </ActionButton>
+
+          <ActionButton
+            active={row.STATUS === 'OUTRA_CIDADE'}
+            kind="orange"
+            onClick={() => {
+              if (row.STATUS !== 'OUTRA_CIDADE') onOpenOutraCidade();
+              onToggleStatus('OUTRA_CIDADE');
+            }}
+          >
+            🟠 Outra cidade
+          </ActionButton>
+
+          <ActionButton active={row.STATUS === 'NUMERO_NAO_EXISTE'} kind="danger" onClick={() => onToggleStatus('NUMERO_NAO_EXISTE')}>
+            🔴 Número não existe
+          </ActionButton>
+
+          <ActionButton
+            active={row.STATUS === 'RETORNO'}
+            kind="blueDark"
+            onClick={() => {
+              if (row.STATUS === 'RETORNO') {
+                onToggleStatus('RETORNO'); // toggle -> pendente
+                return;
+              }
+              onOpenRetorno(); // só vira retorno ao confirmar (confirmRetorno seta status)
+            }}
+          >
+            🟦 Retorno
+          </ActionButton>
+
+          <ActionButton active={row.STATUS === 'ATENDEU'} kind="success" onClick={() => onToggleStatus('ATENDEU')}>
+            🟢 Atendeu
+          </ActionButton>
+        </div>
+
+        <div style={{ padding: 12, borderTop: '1px solid var(--border)', background: 'var(--surfaceMuted)' }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                style={{ ...styles.btn, ...styles.btnPrimary }}
+                onClick={() => onCopy('IDP', row.IDP)}
+                title="Copiar IDP"
+              >
+                Copiar IDP 📋
+              </button>
+
+              <MiniTel
+                label="TF1"
+                value={row.TF1}
+                disabled={!tf1}
+                onClick={() => onCall('TF1')}
+                onCopy={() => onCopy('TF1', row.TF1)}
+              />
+              <MiniTel
+                label="TF2"
+                value={row.TF2}
+                disabled={!tf2}
+                onClick={() => onCall('TF2')}
+                onCopy={() => onCopy('TF2', row.TF2)}
+              />
+            </div>
+
+            <button style={styles.btn} onClick={onClose}>
+              Fechar
             </button>
           </div>
         </div>
@@ -706,7 +697,6 @@ function MiniAppTabela() {
   const [error, setError] = useState<string>('');
 
   const [allRows, setAllRows] = useState<Row[]>([]);
-  const [expandedId, setExpandedId] = useState<string>('');
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
   const [estadoFilter, setEstadoFilter] = useState<string>('TODOS');
@@ -719,12 +709,19 @@ function MiniAppTabela() {
   const [dirty, setDirty] = useState<Record<string, { STATUS: Status; OBSERVACAO: string }>>({});
   const dirtyCount = useMemo(() => Object.keys(dirty).length, [dirty]);
 
-  // modal retorno
+  // MODAIS
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [activeRowId, setActiveRowId] = useState<string>('');
+
+  const activeRow = useMemo(() => allRows.find((r) => r.id === activeRowId) || null, [allRows, activeRowId]);
+
   const [retornoModalOpen, setRetornoModalOpen] = useState(false);
-  const [retornoRowId, setRetornoRowId] = useState<string>('');
   const [retornoInitial, setRetornoInitial] = useState<string>('');
 
-  // ✅ 1) GET — SOMENTE entregaId
+  const [outraCidadeModalOpen, setOutraCidadeModalOpen] = useState(false);
+  const [outraCidadeInitial, setOutraCidadeInitial] = useState<string>('');
+
+  // ✅ GET
   useEffect(() => {
     const entregaId = getEntregaIdOnly();
     if (!entregaId) {
@@ -762,7 +759,7 @@ function MiniAppTabela() {
     })();
   }, []);
 
-  // ✅ 2) Quando payload chegar, converte CSV em rows
+  // ✅ payload -> rows
   useEffect(() => {
     if (!payload || payload.length === 0) return;
 
@@ -779,7 +776,6 @@ function MiniAppTabela() {
     setAllRows(rows);
 
     setDirty({});
-    setExpandedId('');
     setPage(1);
     setError('');
   }, [payload]);
@@ -852,11 +848,6 @@ function MiniAppTabela() {
     return filteredRows.slice(from, from + PAGE_SIZE);
   }, [filteredRows, page]);
 
-  useEffect(() => {
-    if (!expandedId) return;
-    if (!pageRows.some((r) => r.id === expandedId)) setExpandedId('');
-  }, [pageRows, expandedId]);
-
   function updateRow(id: string, patch: Partial<Row>) {
     setAllRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   }
@@ -875,58 +866,59 @@ function MiniAppTabela() {
     setSaveTick((x) => x + 1);
   }
 
-  // ✅ corrige "bug": ao sair de RETORNO para outro status, limpa OBSERVACAO se ela for do retorno
+  // ✅ limpa OBS quando sai de retorno/outra cidade
   function toggleStatusForRow(row: Row, next: Exclude<Status, 'PENDENTE'>) {
     const newStatus: Status = row.STATUS === next ? 'PENDENTE' : next;
 
     let nextObs = row.OBSERVACAO;
 
-    // se estava em retorno e vai para outro status -> limpa obs de retorno
-    if (row.STATUS === 'RETORNO' && newStatus !== 'RETORNO' && isRetornoObs(nextObs)) {
-      nextObs = '';
-    }
+    if (row.STATUS === 'RETORNO' && newStatus !== 'RETORNO' && isRetornoObs(nextObs)) nextObs = '';
+    if (row.STATUS === 'OUTRA_CIDADE' && newStatus !== 'OUTRA_CIDADE' && isOutraCidadeObs(nextObs)) nextObs = '';
 
     updateRow(row.id, { STATUS: newStatus, OBSERVACAO: nextObs });
     markDirty(row, { STATUS: newStatus, OBSERVACAO: nextObs });
   }
 
-  function askOutraCidadeObs(row: Row) {
-    // não usar OBS de retorno como default
-    const current = outraCidadeFromObs(row.OBSERVACAO) || '';
-    const val = window.prompt('Qual cidade?', current);
-    if (val === null) return;
-
-    const cleaned = String(val || '').trim();
-
-    // padroniza no OBS para não misturar com retorno
-    const obs = cleaned ? `OUTRA_CIDADE - ${cleaned}` : 'OUTRA_CIDADE';
-
-    updateRow(row.id, { OBSERVACAO: obs });
-    markDirty(row, { OBSERVACAO: obs });
+  function openRowActions(row: Row) {
+    setActiveRowId(row.id);
+    setActionsOpen(true);
   }
 
   function openRetornoPicker(row: Row) {
     const current = retornoLabelFromObs(row.OBSERVACAO) || '';
-    setRetornoRowId(row.id);
     setRetornoInitial(current);
     setRetornoModalOpen(true);
   }
 
   function confirmRetorno(hhmm: string) {
-    const row = allRows.find((r) => r.id === retornoRowId);
+    const row = activeRow;
     if (!row) {
       setRetornoModalOpen(false);
       return;
     }
-
     const obs = `RETORNO - ${hhmm}`;
-
-    // ao confirmar: vira RETORNO + seta obs
     updateRow(row.id, { STATUS: 'RETORNO', OBSERVACAO: obs });
     markDirty(row, { STATUS: 'RETORNO', OBSERVACAO: obs });
-
     setRetornoModalOpen(false);
-    setRetornoRowId('');
+  }
+
+  function openOutraCidadePicker(row: Row) {
+    const current = outraCidadeFromObs(row.OBSERVACAO) || '';
+    setOutraCidadeInitial(current);
+    setOutraCidadeModalOpen(true);
+  }
+
+  function confirmOutraCidade(city: string) {
+    const row = activeRow;
+    if (!row) {
+      setOutraCidadeModalOpen(false);
+      return;
+    }
+    const cleaned = String(city || '').trim();
+    const obs = cleaned ? `OUTRA_CIDADE - ${cleaned}` : 'OUTRA_CIDADE';
+    updateRow(row.id, { STATUS: 'OUTRA_CIDADE', OBSERVACAO: obs });
+    markDirty(row, { STATUS: 'OUTRA_CIDADE', OBSERVACAO: obs });
+    setOutraCidadeModalOpen(false);
   }
 
   function callPhoneForRow(row: Row, which: 'TF1' | 'TF2') {
@@ -944,19 +936,8 @@ function MiniAppTabela() {
       setToast(`Copiado (${label}): ${v}`);
       setTimeout(() => setToast(''), 1600);
     } catch {
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = v;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        setToast(`Copiado (${label}): ${v}`);
-        setTimeout(() => setToast(''), 1600);
-      } catch {
-        setToast('Não foi possível copiar.');
-        setTimeout(() => setToast(''), 1600);
-      }
+      setToast('Não foi possível copiar.');
+      setTimeout(() => setToast(''), 1600);
     }
   }
 
@@ -984,10 +965,7 @@ function MiniAppTabela() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           cache: 'no-store',
-          body: JSON.stringify({
-            entrega_id,
-            changes,
-          }),
+          body: JSON.stringify({ entrega_id, changes }),
         });
 
         const txt = await resp.text().catch(() => '');
@@ -1038,14 +1016,30 @@ function MiniAppTabela() {
     <div style={{ padding: 12 }}>
       <style>{globalCss}</style>
 
+      {/* MODAIS */}
+      <RowActionsModal
+        open={actionsOpen}
+        row={activeRow}
+        onClose={() => setActionsOpen(false)}
+        onToggleStatus={(next) => activeRow && toggleStatusForRow(activeRow, next)}
+        onCall={(which) => activeRow && callPhoneForRow(activeRow, which)}
+        onCopy={copyToClipboard}
+        onOpenRetorno={() => activeRow && openRetornoPicker(activeRow)}
+        onOpenOutraCidade={() => activeRow && openOutraCidadePicker(activeRow)}
+      />
+
       <RetornoModal
         open={retornoModalOpen}
         initialValue={retornoInitial}
-        onCancel={() => {
-          setRetornoModalOpen(false);
-          setRetornoRowId('');
-        }}
+        onCancel={() => setRetornoModalOpen(false)}
         onConfirm={confirmRetorno}
+      />
+
+      <OutraCidadeModal
+        open={outraCidadeModalOpen}
+        initialValue={outraCidadeInitial}
+        onCancel={() => setOutraCidadeModalOpen(false)}
+        onConfirm={confirmOutraCidade}
       />
 
       {!hasData ? (
@@ -1112,16 +1106,7 @@ function MiniAppTabela() {
               )}
 
               {toast && (
-                <div
-                  style={{
-                    marginTop: 8,
-                    padding: 10,
-                    border: '1px solid rgba(0,0,0,.18)',
-                    borderRadius: 10,
-                    fontSize: 12,
-                    background: 'var(--surface)',
-                  }}
-                >
+                <div style={{ marginTop: 8, padding: 10, border: '1px solid rgba(0,0,0,.18)', borderRadius: 10, fontSize: 12, background: 'var(--surface)' }}>
                   ✅ {toast}
                 </div>
               )}
@@ -1192,7 +1177,7 @@ function MiniAppTabela() {
             <div style={styles.cardHeader}>
               <div>
                 <div style={styles.cardTitle}>Tabela (20 por página)</div>
-                <div style={styles.cardSub}>Clique na linha para expandir. Copiar só em IDP e telefones.</div>
+                <div style={styles.cardSub}>Clique na linha para abrir as ações em um modal. Copiar só em IDP e telefones.</div>
               </div>
             </div>
 
@@ -1214,24 +1199,55 @@ function MiniAppTabela() {
 
                 <tbody>
                   {pageRows.map((r) => {
-                    const isExpanded = expandedId === r.id;
                     const baseBg = rowBg(r.STATUS);
 
+                    // ✅ linha "selecionada" (modal aberto) mais forte e puxando a cor do status
+                    const isSelected = actionsOpen && activeRowId === r.id;
+                    const selectedBg =
+                      r.STATUS === 'OUTRA_CIDADE'
+                        ? 'rgba(249,115,22,.42)'
+                        : r.STATUS === 'RETORNO'
+                        ? 'rgba(30,58,138,.36)'
+                        : r.STATUS === 'ATENDEU'
+                        ? 'rgba(22,163,74,.34)'
+                        : r.STATUS === 'NUMERO_NAO_EXISTE'
+                        ? 'rgba(239,68,68,.34)'
+                        : r.STATUS === 'NAO_ATENDEU' || r.STATUS === 'CAIXA_POSTAL'
+                        ? 'rgba(245,158,11,.40)'
+                        : 'rgba(0,0,0,.08)';
+
                     return (
-                      <FragmentRow
+                      <tr
                         key={r.id}
-                        row={r}
-                        isExpanded={isExpanded}
-                        baseBg={baseBg}
-                        geoCols={geoCols}
-                        onToggleExpand={() => setExpandedId((cur) => (cur === r.id ? '' : r.id))}
-                        onToggleStatus={(next) => toggleStatusForRow(r, next)}
-                        onCall={(which) => callPhoneForRow(r, which)}
-                        onCopyIdp={() => copyToClipboard('IDP', r.IDP)}
-                        onAskOutraCidade={() => askOutraCidadeObs(r)}
-                        onOpenRetornoPicker={() => openRetornoPicker(r)}
-                        onCopyPhone={(which) => copyToClipboard(which, r[which])}
-                      />
+                        style={{
+                          ...styles.tr,
+                          background: isSelected ? selectedBg : baseBg,
+                          outline: isSelected ? '3px solid rgba(0,0,0,.14)' : '2px solid transparent',
+                        }}
+                        onClick={() => openRowActions(r)}
+                      >
+                        <td style={styles.td}>
+                          <StatusPill row={r} />
+                        </td>
+
+                        <td
+                          style={{ ...styles.td, cursor: 'copy' }}
+                          title="Clique para copiar IDP"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            copyToClipboard('IDP', r.IDP);
+                          }}
+                        >
+                          {r.IDP}
+                        </td>
+
+                        {geoCols.estado ? <td style={styles.td}>{r.ESTADO || '—'}</td> : null}
+                        {geoCols.cidade ? <td style={styles.td}>{r.CIDADE || '—'}</td> : null}
+                        {geoCols.regiao ? <td style={styles.td}>{r.REGIAO_CIDADE || '—'}</td> : null}
+
+                        <td style={styles.td}>{r.TF1 || '—'}</td>
+                        <td style={styles.td}>{r.TF2 || '—'}</td>
+                      </tr>
                     );
                   })}
 
@@ -1249,7 +1265,7 @@ function MiniAppTabela() {
               </table>
             </div>
 
-            <div style={styles.footerHint}>✅ Clique no mesmo botão novamente para voltar a PENDENTE.</div>
+            <div style={styles.footerHint}>✅ Clique na linha para abrir o modal de ações.</div>
 
             <div style={{ padding: 10, borderTop: '1px solid var(--border)', background: 'var(--surfaceMuted)' }}>
               <PaginationControls />
@@ -1390,7 +1406,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   btnAction: {
-    padding: '9px 12px',
+    padding: '10px 12px',
     borderRadius: 10,
     fontSize: 12,
     fontWeight: 900,
@@ -1400,21 +1416,55 @@ const styles: Record<string, React.CSSProperties> = {
   btnActive: {
     outline: '3px solid rgba(0,0,0,.12)',
   },
+};
 
-  actionsInline: {
-    padding: 10,
-    borderTop: '1px solid var(--border)',
+const stylesModal: Record<string, React.CSSProperties> = {
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,.35)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    zIndex: 9999,
+  },
+  box: {
+    width: 'min(420px, 96vw)',
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 14,
+    boxShadow: 'var(--shadow)',
+    overflow: 'hidden',
+  },
+  header: {
+    padding: 12,
     background: 'var(--surfaceMuted)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-    flexWrap: 'wrap',
+    borderBottom: '1px solid var(--border)',
   },
-  inlineGroup: {
-    display: 'flex',
-    gap: 8,
-    flexWrap: 'wrap',
-    alignItems: 'center',
+  title: { fontWeight: 900, fontSize: 14, color: 'var(--text)' },
+  sub: { fontSize: 12, color: 'var(--text-muted)', marginTop: 4 },
+  input: {
+    width: '100%',
+    padding: '12px 12px',
+    borderRadius: 12,
+    border: '1px solid var(--border)',
+    background: 'var(--surface-2)',
+    color: 'var(--text)',
+    fontSize: 16,
+    fontWeight: 900,
+    outline: 'none',
   },
+  textInput: {
+    width: '100%',
+    padding: '12px 12px',
+    borderRadius: 12,
+    border: '1px solid var(--border)',
+    background: 'var(--surface-2)',
+    color: 'var(--text)',
+    fontSize: 14,
+    fontWeight: 800,
+    outline: 'none',
+  },
+  rowBtns: { display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 },
 };
