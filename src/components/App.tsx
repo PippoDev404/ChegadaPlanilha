@@ -115,6 +115,26 @@ function safeTel(v: string) {
   return String(v || '').trim().replace(/[^\d+]/g, '');
 }
 
+// ✅ Para salvar no backend sem prefixo
+function obsToSave(status: Status, obs: string) {
+  const t = String(obs || '').trim();
+
+  if (status === 'OUTRA_CIDADE') {
+    // aceita "OUTRA_CIDADE - Santos" ou "Santos"
+    const city = outraCidadeFromObs(t) || t.replace(/^OUTRA\s*CIDADE\s*[-–—]?\s*/i, '').trim();
+    return city;
+  }
+
+  if (status === 'RETORNO') {
+    // aceita "RETORNO - 13:40" ou "13:40"
+    const hhmm = retornoLabelFromObs(t) || t.replace(/^RETORNO\s*[-–—]?\s*/i, '').trim();
+    // opcional: normaliza se vier "9:05" -> "09:05" (se quiser)
+    return hhmm;
+  }
+
+  return t;
+}
+
 function telToDial(v: string) {
   const digits = safeTel(v).replace(/[^\d]/g, '');
   if (!digits) return '';
@@ -372,14 +392,14 @@ function ActionButton({
     kind === 'danger'
       ? { border: '2px solid rgba(239,68,68,.70)', background: 'rgba(239,68,68,.28)', color: 'var(--text)' }
       : kind === 'orange'
-      ? { border: '2px solid rgba(249,115,22,.70)', background: 'rgba(249,115,22,.28)', color: 'var(--text)' }
-      : kind === 'warning'
-      ? { border: '2px solid rgba(245,158,11,.70)', background: 'rgba(245,158,11,.28)', color: 'var(--text)' }
-      : kind === 'blueDark'
-      ? { border: '2px solid rgba(30,58,138,.65)', background: 'rgba(30,58,138,.24)', color: 'var(--text)' }
-      : kind === 'blueLight'
-      ? { border: '2px solid rgba(56,189,248,.65)', background: 'rgba(56,189,248,.22)', color: 'var(--text)' }
-      : { border: '2px solid rgba(22,163,74,.65)', background: 'rgba(22,163,74,.24)', color: 'var(--text)' };
+        ? { border: '2px solid rgba(249,115,22,.70)', background: 'rgba(249,115,22,.28)', color: 'var(--text)' }
+        : kind === 'warning'
+          ? { border: '2px solid rgba(245,158,11,.70)', background: 'rgba(245,158,11,.28)', color: 'var(--text)' }
+          : kind === 'blueDark'
+            ? { border: '2px solid rgba(30,58,138,.65)', background: 'rgba(30,58,138,.24)', color: 'var(--text)' }
+            : kind === 'blueLight'
+              ? { border: '2px solid rgba(56,189,248,.65)', background: 'rgba(56,189,248,.22)', color: 'var(--text)' }
+              : { border: '2px solid rgba(22,163,74,.65)', background: 'rgba(22,163,74,.24)', color: 'var(--text)' };
 
   return (
     <button
@@ -962,12 +982,17 @@ function MiniAppTabela() {
     if (!entries.length) return;
 
     const t = setTimeout(async () => {
-      const changes = entries.map(([lineStr, v]) => ({
-        LINE: Number(lineStr),
-        STATUS: v.STATUS,
-        OBSERVACAO: v.OBSERVACAO || '',
-        ts: new Date().toISOString(),
-      }));
+      const changes = entries.map(([lineStr, v]) => {
+        const status = v.STATUS;
+        const obsClean = obsToSave(status, v.OBSERVACAO || '');
+
+        return {
+          LINE: Number(lineStr),
+          STATUS: status,
+          OBSERVACAO: obsClean, // ✅ agora vai só "Santos" ou só "13:40"
+          ts: new Date().toISOString(),
+        };
+      });
 
       try {
         setSaving(true);
@@ -1206,14 +1231,14 @@ function MiniAppTabela() {
                       r.STATUS === 'OUTRA_CIDADE'
                         ? 'rgba(249,115,22,.42)'
                         : r.STATUS === 'RETORNO'
-                        ? 'rgba(30,58,138,.36)'
-                        : r.STATUS === 'ATENDEU'
-                        ? 'rgba(22,163,74,.34)'
-                        : r.STATUS === 'NUMERO_NAO_EXISTE'
-                        ? 'rgba(239,68,68,.34)'
-                        : r.STATUS === 'NAO_ATENDEU' || r.STATUS === 'CAIXA_POSTAL'
-                        ? 'rgba(245,158,11,.40)'
-                        : 'rgba(0,0,0,.08)';
+                          ? 'rgba(30,58,138,.36)'
+                          : r.STATUS === 'ATENDEU'
+                            ? 'rgba(22,163,74,.34)'
+                            : r.STATUS === 'NUMERO_NAO_EXISTE'
+                              ? 'rgba(239,68,68,.34)'
+                              : r.STATUS === 'NAO_ATENDEU' || r.STATUS === 'CAIXA_POSTAL'
+                                ? 'rgba(245,158,11,.40)'
+                                : 'rgba(0,0,0,.08)';
 
                     return (
                       <tr
