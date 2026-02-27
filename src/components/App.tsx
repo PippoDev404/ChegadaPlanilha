@@ -45,7 +45,7 @@ type StatusFilter = 'TODOS' | 'PENDENTES' | Status;
 const PAGE_SIZE = 20;
 
 const API_GET_ENTREGA = 'https://n8n.srv962474.hstgr.cloud/webhook/entregas';
-const API_SAVE_PARTE = 'https://n8n.srv962474.hstgr.cloud/webhook-test/parte/salvar';
+const API_SAVE_PARTE = 'https://n8n.srv962474.hstgr.cloud/webhook/parte/salvar';
 
 // =========================
 // THEME
