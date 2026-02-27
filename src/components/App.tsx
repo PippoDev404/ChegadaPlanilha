@@ -2,6 +2,7 @@
 // ✅ Mudanças aplicadas AGORA (além das suas):
 // 1) Novo status: REMOVER_DA_LISTA (roxo)
 // 2) "Outra cidade" agora é um SELECT com TODAS as cidades do Brasil via API do IBGE (com busca)
+//    ✅ AGORA: mostra o NOME COMPLETO do estado (ex: "Santos/São Paulo")
 // 3) Botões: Copiar IDP, Ligar TF1/TF2 e Copiar TF1/TF2 ficam TODOS da mesma cor (primary)
 // 4) Mantidas as regras de fechar modal de ações automaticamente conforme você já definiu
 //    - Para popup: fecha após Confirmar (e fecha ao destoggle -> pendente)
@@ -38,7 +39,7 @@ type Row = {
   TF2: string;
 
   STATUS: Status;
-  OBSERVACAO: string; // RETORNO - HH:MM | OUTRA_CIDADE - CIDADE/UF | livre
+  OBSERVACAO: string; // RETORNO - HH:MM | OUTRA_CIDADE - CIDADE/ESTADO | livre
 };
 
 type StatusFilter = 'TODOS' | 'PENDENTES' | Status;
@@ -128,7 +129,7 @@ function obsToSave(status: Status, obs: string) {
   const t = String(obs || '').trim();
 
   if (status === 'OUTRA_CIDADE') {
-    // aceita "OUTRA_CIDADE - Santos/SP" ou "Santos/SP" ou "Santos"
+    // aceita "OUTRA_CIDADE - Santos/São Paulo" ou "Santos/São Paulo" ou "Santos"
     const city = outraCidadeFromObs(t) || t.replace(/^OUTRA\s*CIDADE\s*[-–—]?\s*/i, '').trim();
     return city;
   }
@@ -298,10 +299,10 @@ function retornoLabelFromObs(obs: string) {
 function outraCidadeFromObs(obs: string) {
   const t = String(obs || '').trim();
 
-  // caso venha limpo: "Santos" ou "Santos/SP"
+  // caso venha limpo: "Santos" ou "Santos/São Paulo"
   if (t && !/^OUTRA_CIDADE/i.test(t)) return t;
 
-  // caso venha com prefixo: "OUTRA_CIDADE - Santos/SP"
+  // caso venha com prefixo: "OUTRA_CIDADE - Santos/São Paulo"
   const m = t.match(/OUTRA_CIDADE\s*[-–—]?\s*(.*)$/i);
   return (m?.[1] || '').trim();
 }
@@ -572,19 +573,20 @@ type IbgeMunicipio = {
   };
 };
 
-function getUfFromMunicipio(m: IbgeMunicipio) {
+function getUfNomeFromMunicipio(m: IbgeMunicipio) {
+  // ✅ prioridade: nome completo do estado
   return (
-    m?.microrregiao?.mesorregiao?.UF?.sigla ||
     m?.microrregiao?.mesorregiao?.UF?.nome ||
+    m?.microrregiao?.mesorregiao?.UF?.sigla ||
     ''
   );
 }
 
-function cityLabel(nome: string, uf: string) {
+function cityLabel(nome: string, estadoNome: string) {
   const n = String(nome || '').trim();
-  const u = String(uf || '').trim().toUpperCase();
+  const e = String(estadoNome || '').trim();
   if (!n) return '';
-  return u ? `${n}/${u}` : n;
+  return e ? `${n}/${e}` : n; // ✅ "Cidade/Estado"
 }
 
 function OutraCidadeModal({
@@ -594,13 +596,13 @@ function OutraCidadeModal({
   onConfirm,
 }: {
   open: boolean;
-  initialValue: string; // esperado: "Cidade/UF" ou "Cidade"
+  initialValue: string; // esperado: "Cidade/Estado" ou "Cidade"
   onCancel: () => void;
   onConfirm: (city: string) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [loadErr, setLoadErr] = useState('');
-  const [all, setAll] = useState<{ label: string; nome: string; uf: string }[]>([]);
+  const [all, setAll] = useState<{ label: string; nome: string; estado: string }[]>([]);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState('');
 
@@ -633,17 +635,16 @@ function OutraCidadeModal({
         const list: IbgeMunicipio[] = Array.isArray(data) ? data : [];
         const mapped = list
           .map((m) => {
-            const uf = getUfFromMunicipio(m);
+            const estado = getUfNomeFromMunicipio(m);
             const nome = String(m?.nome || '').trim();
-            const label = cityLabel(nome, uf);
-            return { label, nome, uf };
+            const label = cityLabel(nome, estado);
+            return { label, nome, estado };
           })
           .filter((x) => x.label)
           .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
 
         setAll(mapped);
 
-        // se initialValue já existir e bater exatamente, mantém
         if (initialValue) setSelected(initialValue);
       } catch (e: any) {
         setLoadErr(String(e?.message || e || 'Erro ao carregar cidades do IBGE'));
@@ -658,10 +659,10 @@ function OutraCidadeModal({
     const q = String(query || '').trim().toLowerCase();
     if (!q) return all.slice(0, 250);
 
-    // busca por "cidade", "uf", "cidade/uf"
-    const out: { label: string; nome: string; uf: string }[] = [];
+    // busca por "cidade", "estado", "cidade/estado"
+    const out: { label: string; nome: string; estado: string }[] = [];
     for (const c of all) {
-      const hay = `${c.label} ${c.nome} ${c.uf}`.toLowerCase();
+      const hay = `${c.label} ${c.nome} ${c.estado}`.toLowerCase();
       if (hay.includes(q)) out.push(c);
       if (out.length >= 250) break;
     }
@@ -688,7 +689,7 @@ function OutraCidadeModal({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={loading ? 'Carregando lista do IBGE…' : 'Digite para filtrar (ex: Santos, SP, Santos/SP)'}
+            placeholder={loading ? 'Carregando lista do IBGE…' : 'Digite para filtrar (ex: Santos, São Paulo, Santos/São Paulo)'}
             style={stylesModal.textInput}
             disabled={loading || !!loadErr}
           />
@@ -1075,9 +1076,6 @@ function MiniAppTabela() {
     if (row.STATUS === 'RETORNO' && newStatus !== 'RETORNO') nextObs = '';
     if (row.STATUS === 'OUTRA_CIDADE' && newStatus !== 'OUTRA_CIDADE') nextObs = '';
 
-    // se quiser limpar OBS ao remover da lista, descomente:
-    // if (newStatus === 'REMOVER_DA_LISTA') nextObs = '';
-
     updateRow(row.id, { STATUS: newStatus, OBSERVACAO: nextObs });
     markDirty(row, { STATUS: newStatus, OBSERVACAO: nextObs });
   }
@@ -1130,13 +1128,12 @@ function MiniAppTabela() {
 
     const cleaned = String(city || '').trim();
 
-    // obrigar cidade:
     if (!cleaned) {
       window.alert('Selecione uma cidade.');
       return;
     }
 
-    const obs = cleaned; // ✅ salva LIMPO (ex: "Santos/SP")
+    const obs = cleaned; // ✅ salva LIMPO (ex: "Santos/São Paulo")
 
     updateRow(row.id, { STATUS: 'OUTRA_CIDADE', OBSERVACAO: obs });
     markDirty(row, { STATUS: 'OUTRA_CIDADE', OBSERVACAO: obs });
@@ -1181,7 +1178,7 @@ function MiniAppTabela() {
         return {
           LINE: Number(lineStr),
           STATUS: status,
-          OBSERVACAO: obsClean, // ✅ agora vai só "Santos/SP" ou só "13:40"
+          OBSERVACAO: obsClean,
           ts: new Date().toISOString(),
         };
       });
@@ -1213,7 +1210,7 @@ function MiniAppTabela() {
   }, [saveTick, dirty]);
 
   const pendentes = useMemo(() => filteredRows.filter((r) => r.STATUS === 'PENDENTE').length, [filteredRows]);
-  const tratados = useMemo(() => filteredRows.filter((r) => r.STATUS !== 'PENDENTE').length, [filteredRows]); // ✅ sem "concluídos"
+  const tratados = useMemo(() => filteredRows.filter((r) => r.STATUS !== 'PENDENTE').length, [filteredRows]);
   const hasData = allRows.length > 0;
 
   const hintLink = useMemo(() => {
@@ -1449,7 +1446,6 @@ function MiniAppTabela() {
                           <StatusPill row={r} />
                         </td>
 
-                        {/* ✅ IDP não copia mais ao clicar */}
                         <td style={styles.td} title="Copiar IDP pelo botão no modal">
                           {r.IDP}
                         </td>
@@ -1487,7 +1483,6 @@ function MiniAppTabela() {
         </>
       )}
 
-      {/* ✅ SNACKBAR (popup pequeno embaixo, some em 3s) */}
       {toast ? <div style={styles.snackbar}>{toast}</div> : null}
     </div>
   );
@@ -1633,7 +1628,6 @@ const styles: Record<string, React.CSSProperties> = {
     outline: '3px solid rgba(0,0,0,.12)',
   },
 
-  // ✅ Snackbar embaixo
   snackbar: {
     position: 'fixed',
     left: '50%',
