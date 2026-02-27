@@ -1,11 +1,11 @@
 // App.tsx (arquivo completo)
-// ✅ Mudanças novas aplicadas agora:
-// 1) Removido "CONCLUIDOS" de tudo (não existe mais esse status/filtro/texto).
-// 2) Ao selecionar um status (ATENDEU / NÃO ATENDEU / NÚMERO NÃO EXISTE / toggles) o modal de ações FECHA automaticamente.
-// 3) Para status com popup:
-//    - RETORNO: só fecha o modal de ações após CONFIRMAR (e fecha também se você "destoggle" retorno -> pendente).
-//    - OUTRA CIDADE: só fecha o modal de ações após CONFIRMAR (e fecha também se você "destoggle" outra cidade -> pendente).
-// 4) Copiar TF1/TF2/IDP e Ligar NÃO fecham o modal de ações.
+// ✅ Mudanças aplicadas AGORA (além das suas):
+// 1) Novo status: REMOVER_DA_LISTA (roxo)
+// 2) "Outra cidade" agora é um SELECT com TODAS as cidades do Brasil via API do IBGE (com busca)
+// 3) Botões: Copiar IDP, Ligar TF1/TF2 e Copiar TF1/TF2 ficam TODOS da mesma cor (primary)
+// 4) Mantidas as regras de fechar modal de ações automaticamente conforme você já definiu
+//    - Para popup: fecha após Confirmar (e fecha ao destoggle -> pendente)
+//    - Copiar/Ligar não fecha modal
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
@@ -17,7 +17,8 @@ type Status =
   | 'ATENDEU'
   | 'CAIXA_POSTAL'
   | 'RETORNO'
-  | 'NUMERO_NAO_EXISTE';
+  | 'NUMERO_NAO_EXISTE'
+  | 'REMOVER_DA_LISTA';
 
 type PartePayload = {
   csv?: string;
@@ -37,7 +38,7 @@ type Row = {
   TF2: string;
 
   STATUS: Status;
-  OBSERVACAO: string; // RETORNO - HH:MM | OUTRA_CIDADE - CIDADE | livre
+  OBSERVACAO: string; // RETORNO - HH:MM | OUTRA_CIDADE - CIDADE/UF | livre
 };
 
 type StatusFilter = 'TODOS' | 'PENDENTES' | Status;
@@ -46,6 +47,9 @@ const PAGE_SIZE = 20;
 
 const API_GET_ENTREGA = 'https://n8n.srv962474.hstgr.cloud/webhook/entregas';
 const API_SAVE_PARTE = 'https://n8n.srv962474.hstgr.cloud/webhook/parte/salvar';
+
+// IBGE (lista de municípios)
+const IBGE_MUNICIPIOS_API = 'https://servicodados.ibge.gov.br/api/v1/localidades/municipios';
 
 // =========================
 // THEME
@@ -73,6 +77,8 @@ const globalCss = `
 
   --blueDark: #1E3A8A;
   --blueLight: #38BDF8;
+
+  --purple: #7C3AED;
 
   --shadow: 0 10px 30px rgba(0,0,0,.10);
   --radius: 15px;
@@ -112,7 +118,9 @@ function getEntregaIdOnly(): string {
 }
 
 function safeTel(v: string) {
-  return String(v || '').trim().replace(/[^\d+]/g, '');
+  return String(v || '')
+    .trim()
+    .replace(/[^\d+]/g, '');
 }
 
 // ✅ Para salvar no backend sem prefixo
@@ -120,7 +128,7 @@ function obsToSave(status: Status, obs: string) {
   const t = String(obs || '').trim();
 
   if (status === 'OUTRA_CIDADE') {
-    // aceita "OUTRA_CIDADE - Santos" ou "Santos"
+    // aceita "OUTRA_CIDADE - Santos/SP" ou "Santos/SP" ou "Santos"
     const city = outraCidadeFromObs(t) || t.replace(/^OUTRA\s*CIDADE\s*[-–—]?\s*/i, '').trim();
     return city;
   }
@@ -128,7 +136,6 @@ function obsToSave(status: Status, obs: string) {
   if (status === 'RETORNO') {
     // aceita "RETORNO - 13:40" ou "13:40"
     const hhmm = retornoLabelFromObs(t) || t.replace(/^RETORNO\s*[-–—]?\s*/i, '').trim();
-    // opcional: normaliza se vier "9:05" -> "09:05" (se quiser)
     return hhmm;
   }
 
@@ -160,7 +167,8 @@ function sanitizeStatus(raw: string): Status {
     s === 'NAO_ATENDEU' ||
     s === 'CAIXA_POSTAL' ||
     s === 'RETORNO' ||
-    s === 'NUMERO_NAO_EXISTE'
+    s === 'NUMERO_NAO_EXISTE' ||
+    s === 'REMOVER_DA_LISTA'
   )
     return s as Status;
 
@@ -276,7 +284,6 @@ function csvToRows(csv: string): Row[] {
 }
 
 // OBS helpers (✅ agora funcionam com OBS limpa também)
-
 function retornoLabelFromObs(obs: string) {
   const t = String(obs || '').trim();
 
@@ -291,10 +298,10 @@ function retornoLabelFromObs(obs: string) {
 function outraCidadeFromObs(obs: string) {
   const t = String(obs || '').trim();
 
-  // caso venha limpo: "Santos"
+  // caso venha limpo: "Santos" ou "Santos/SP"
   if (t && !/^OUTRA_CIDADE/i.test(t)) return t;
 
-  // caso venha com prefixo: "OUTRA_CIDADE - Santos"
+  // caso venha com prefixo: "OUTRA_CIDADE - Santos/SP"
   const m = t.match(/OUTRA_CIDADE\s*[-–—]?\s*(.*)$/i);
   return (m?.[1] || '').trim();
 }
@@ -306,6 +313,7 @@ function statusText(row: Row) {
   if (s === 'ATENDEU') return 'ATENDEU';
   if (s === 'NAO_ATENDEU' || s === 'CAIXA_POSTAL') return 'NÃO ATENDEU/CAIXA POSTAL';
   if (s === 'NUMERO_NAO_EXISTE') return 'NÚMERO NÃO EXISTE';
+  if (s === 'REMOVER_DA_LISTA') return 'REMOVER DA LISTA';
 
   if (s === 'OUTRA_CIDADE') {
     const city = outraCidadeFromObs(row.OBSERVACAO);
@@ -333,12 +341,14 @@ function statusVars(s: Status) {
     case 'NAO_ATENDEU':
     case 'CAIXA_POSTAL':
       return { bd: 'var(--warning)', bg: 'rgba(245,158,11,.34)' };
+    case 'REMOVER_DA_LISTA':
+      return { bd: 'var(--purple)', bg: 'rgba(124,58,237,.24)' };
     default:
       return { bd: 'var(--border)', bg: 'rgba(0,0,0,.06)' };
   }
 }
 
-// bg base da linha por status (um pouco mais forte)
+// bg base da linha por status
 function rowBg(status: Status) {
   switch (status) {
     case 'NAO_ATENDEU':
@@ -352,6 +362,8 @@ function rowBg(status: Status) {
       return 'rgba(30,58,138,.24)';
     case 'NUMERO_NAO_EXISTE':
       return 'rgba(239,68,68,.24)';
+    case 'REMOVER_DA_LISTA':
+      return 'rgba(124,58,237,.20)';
     default:
       return 'transparent';
   }
@@ -390,7 +402,7 @@ function ActionButton({
   onClick,
 }: {
   active: boolean;
-  kind: 'danger' | 'warning' | 'success' | 'blueDark' | 'blueLight' | 'orange';
+  kind: 'danger' | 'warning' | 'success' | 'blueDark' | 'blueLight' | 'orange' | 'purple';
   children: React.ReactNode;
   onClick: () => void;
 }) {
@@ -405,7 +417,9 @@ function ActionButton({
             ? { border: '2px solid rgba(30,58,138,.65)', background: 'rgba(30,58,138,.24)', color: 'var(--text)' }
             : kind === 'blueLight'
               ? { border: '2px solid rgba(56,189,248,.65)', background: 'rgba(56,189,248,.22)', color: 'var(--text)' }
-              : { border: '2px solid rgba(22,163,74,.65)', background: 'rgba(22,163,74,.24)', color: 'var(--text)' };
+              : kind === 'purple'
+                ? { border: '2px solid rgba(124,58,237,.65)', background: 'rgba(124,58,237,.22)', color: 'var(--text)' }
+                : { border: '2px solid rgba(22,163,74,.65)', background: 'rgba(22,163,74,.24)', color: 'var(--text)' };
 
   return (
     <button
@@ -434,20 +448,23 @@ function MiniTel({
   onClick: () => void;
   onCopy: () => void;
 }) {
+  const enabled = !disabled;
   return (
     <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
       <button
-        disabled={disabled}
+        disabled={!enabled}
         onClick={onClick}
         style={{
-          border: '1px solid var(--border)',
-          background: disabled ? 'var(--surfaceMuted)' : 'var(--primary)',
-          color: disabled ? 'var(--text-muted)' : 'var(--primary-text)',
+          ...styles.btn,
+          ...styles.btnPrimary, // ✅ mesma cor
+          background: enabled ? 'var(--primary)' : 'var(--surfaceMuted)',
+          color: enabled ? 'var(--primary-text)' : 'var(--text-muted)',
+          borderColor: 'var(--border)',
           padding: '9px 12px',
           borderRadius: 10,
           fontSize: 12,
           fontWeight: 900,
-          cursor: disabled ? 'not-allowed' : 'pointer',
+          cursor: enabled ? 'pointer' : 'not-allowed',
           whiteSpace: 'nowrap',
         }}
         title={value || ''}
@@ -459,14 +476,16 @@ function MiniTel({
         disabled={!value}
         onClick={onCopy}
         style={{
-          border: '1px solid rgba(0,0,0,.18)',
-          background: 'rgba(0,0,0,.06)',
-          color: 'var(--text)',
+          ...styles.btn,
+          ...styles.btnPrimary, // ✅ mesma cor
+          background: value ? 'var(--primary)' : 'var(--surfaceMuted)',
+          color: value ? 'var(--primary-text)' : 'var(--text-muted)',
+          borderColor: 'var(--border)',
           padding: '9px 12px',
           borderRadius: 10,
           fontSize: 12,
           fontWeight: 900,
-          cursor: !value ? 'not-allowed' : 'pointer',
+          cursor: value ? 'pointer' : 'not-allowed',
           whiteSpace: 'nowrap',
         }}
         title={value ? `Copiar ${label}` : ''}
@@ -541,8 +560,33 @@ function RetornoModal({
 }
 
 // =========================
-// MODAL: Outra cidade
+// MODAL: Outra cidade (SELECT com cidades do Brasil)
 // =========================
+type IbgeMunicipio = {
+  id: number;
+  nome: string;
+  microrregiao?: {
+    mesorregiao?: {
+      UF?: { sigla?: string; nome?: string };
+    };
+  };
+};
+
+function getUfFromMunicipio(m: IbgeMunicipio) {
+  return (
+    m?.microrregiao?.mesorregiao?.UF?.sigla ||
+    m?.microrregiao?.mesorregiao?.UF?.nome ||
+    ''
+  );
+}
+
+function cityLabel(nome: string, uf: string) {
+  const n = String(nome || '').trim();
+  const u = String(uf || '').trim().toUpperCase();
+  if (!n) return '';
+  return u ? `${n}/${u}` : n;
+}
+
 function OutraCidadeModal({
   open,
   initialValue,
@@ -550,39 +594,144 @@ function OutraCidadeModal({
   onConfirm,
 }: {
   open: boolean;
-  initialValue: string;
+  initialValue: string; // esperado: "Cidade/UF" ou "Cidade"
   onCancel: () => void;
   onConfirm: (city: string) => void;
 }) {
-  const [value, setValue] = useState(initialValue || '');
+  const [loading, setLoading] = useState(false);
+  const [loadErr, setLoadErr] = useState('');
+  const [all, setAll] = useState<{ label: string; nome: string; uf: string }[]>([]);
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState('');
 
   useEffect(() => {
-    setValue(initialValue || '');
-  }, [initialValue, open]);
+    if (!open) return;
+
+    // reset UI ao abrir
+    setLoadErr('');
+    setQuery('');
+    setSelected(initialValue || '');
+
+    // carrega somente uma vez
+    if (all.length) return;
+
+    (async () => {
+      try {
+        setLoading(true);
+        setLoadErr('');
+        const resp = await fetch(IBGE_MUNICIPIOS_API, { cache: 'force-cache' });
+        const raw = await resp.text().catch(() => '');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} • ${raw || 'Sem body'}`);
+
+        let data: any;
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          throw new Error('Resposta do IBGE não é JSON.');
+        }
+
+        const list: IbgeMunicipio[] = Array.isArray(data) ? data : [];
+        const mapped = list
+          .map((m) => {
+            const uf = getUfFromMunicipio(m);
+            const nome = String(m?.nome || '').trim();
+            const label = cityLabel(nome, uf);
+            return { label, nome, uf };
+          })
+          .filter((x) => x.label)
+          .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+
+        setAll(mapped);
+
+        // se initialValue já existir e bater exatamente, mantém
+        if (initialValue) setSelected(initialValue);
+      } catch (e: any) {
+        setLoadErr(String(e?.message || e || 'Erro ao carregar cidades do IBGE'));
+      } finally {
+        setLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const options = useMemo(() => {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return all.slice(0, 250);
+
+    // busca por "cidade", "uf", "cidade/uf"
+    const out: { label: string; nome: string; uf: string }[] = [];
+    for (const c of all) {
+      const hay = `${c.label} ${c.nome} ${c.uf}`.toLowerCase();
+      if (hay.includes(q)) out.push(c);
+      if (out.length >= 250) break;
+    }
+    return out;
+  }, [all, query]);
 
   if (!open) return null;
 
   return (
     <div onClick={onCancel} style={stylesModal.overlay}>
-      <div onClick={(e) => e.stopPropagation()} style={stylesModal.box}>
+      <div onClick={(e) => e.stopPropagation()} style={{ ...stylesModal.box, width: 'min(520px, 96vw)' }}>
         <div style={stylesModal.header}>
-          <div style={stylesModal.title}>🟠 Outra cidade</div>
-          <div style={stylesModal.sub}>Digite o nome da cidade</div>
+          <div style={stylesModal.title}>🟠 Mora/Vota em outra cidade</div>
+          <div style={stylesModal.sub}>Selecione uma cidade (lista oficial IBGE)</div>
         </div>
 
         <div style={{ padding: 12 }}>
+          {loadErr ? (
+            <div style={{ marginBottom: 10, padding: 10, border: '1px solid var(--danger)', borderRadius: 10, fontSize: 12 }}>
+              ❌ {loadErr}
+            </div>
+          ) : null}
+
           <input
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            placeholder="Ex: Santos"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={loading ? 'Carregando lista do IBGE…' : 'Digite para filtrar (ex: Santos, SP, Santos/SP)'}
             style={stylesModal.textInput}
+            disabled={loading || !!loadErr}
           />
+
+          <div style={{ marginTop: 10 }}>
+            <select
+              value={selected}
+              onChange={(e) => setSelected(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px 12px',
+                borderRadius: 12,
+                border: '1px solid var(--border)',
+                background: 'var(--surface-2)',
+                color: 'var(--text)',
+                fontSize: 14,
+                fontWeight: 800,
+                outline: 'none',
+              }}
+              disabled={loading || !!loadErr}
+            >
+              <option value="">Selecione…</option>
+              {options.map((c) => (
+                <option key={c.label} value={c.label}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+              {loading ? 'Carregando…' : all.length ? `Total de cidades: ${all.length} • Mostrando até ${options.length}` : '—'}
+            </div>
+          </div>
 
           <div style={stylesModal.rowBtns}>
             <button style={styles.btn} onClick={onCancel}>
               Cancelar
             </button>
-            <button style={{ ...styles.btn, ...styles.btnPrimary }} onClick={() => onConfirm(String(value || '').trim())}>
+            <button
+              style={{ ...styles.btn, ...styles.btnPrimary }}
+              onClick={() => onConfirm(String(selected || '').trim())}
+              disabled={loading || !!loadErr}
+            >
               Confirmar
             </button>
           </div>
@@ -623,7 +772,7 @@ function RowActionsModal({
 
   return (
     <div onClick={onClose} style={stylesModal.overlay}>
-      <div onClick={(e) => e.stopPropagation()} style={{ ...stylesModal.box, width: 'min(560px, 96vw)' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ ...stylesModal.box, width: 'min(620px, 96vw)' }}>
         <div style={stylesModal.header}>
           <div style={stylesModal.title}>Ações • IDP {row.IDP}</div>
           <div style={stylesModal.sub}>
@@ -656,7 +805,7 @@ function RowActionsModal({
               onOpenOutraCidade();
             }}
           >
-            🟠 Outra cidade
+            🟠 Mora/Vota em outra cidade
           </ActionButton>
 
           <ActionButton
@@ -696,12 +845,27 @@ function RowActionsModal({
           >
             🟢 Atendeu
           </ActionButton>
+
+          <ActionButton
+            active={row.STATUS === 'REMOVER_DA_LISTA'}
+            kind="purple"
+            onClick={() => {
+              onToggleStatus('REMOVER_DA_LISTA');
+              onClose(); // ✅ fecha ao selecionar status
+            }}
+          >
+            🟣 Remover da lista
+          </ActionButton>
         </div>
 
         <div style={{ padding: 12, borderTop: '1px solid var(--border)', background: 'var(--surfaceMuted)' }}>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-              <button style={{ ...styles.btn, ...styles.btnPrimary }} onClick={() => onCopy('IDP', row.IDP)} title="Copiar IDP">
+              <button
+                style={{ ...styles.btn, ...styles.btnPrimary }} // ✅ mesma cor
+                onClick={() => onCopy('IDP', row.IDP)}
+                title="Copiar IDP"
+              >
                 Copiar IDP 📋
               </button>
 
@@ -911,6 +1075,9 @@ function MiniAppTabela() {
     if (row.STATUS === 'RETORNO' && newStatus !== 'RETORNO') nextObs = '';
     if (row.STATUS === 'OUTRA_CIDADE' && newStatus !== 'OUTRA_CIDADE') nextObs = '';
 
+    // se quiser limpar OBS ao remover da lista, descomente:
+    // if (newStatus === 'REMOVER_DA_LISTA') nextObs = '';
+
     updateRow(row.id, { STATUS: newStatus, OBSERVACAO: nextObs });
     markDirty(row, { STATUS: newStatus, OBSERVACAO: nextObs });
   }
@@ -963,10 +1130,13 @@ function MiniAppTabela() {
 
     const cleaned = String(city || '').trim();
 
-    // se quiser obrigar cidade, valida aqui:
-    // if (!cleaned) { window.alert('Digite uma cidade.'); return; }
+    // obrigar cidade:
+    if (!cleaned) {
+      window.alert('Selecione uma cidade.');
+      return;
+    }
 
-    const obs = cleaned; // ✅ salva LIMPO (ex: "Santos")
+    const obs = cleaned; // ✅ salva LIMPO (ex: "Santos/SP")
 
     updateRow(row.id, { STATUS: 'OUTRA_CIDADE', OBSERVACAO: obs });
     markDirty(row, { STATUS: 'OUTRA_CIDADE', OBSERVACAO: obs });
@@ -1011,7 +1181,7 @@ function MiniAppTabela() {
         return {
           LINE: Number(lineStr),
           STATUS: status,
-          OBSERVACAO: obsClean, // ✅ agora vai só "Santos" ou só "13:40"
+          OBSERVACAO: obsClean, // ✅ agora vai só "Santos/SP" ou só "13:40"
           ts: new Date().toISOString(),
         };
       });
@@ -1165,10 +1335,11 @@ function MiniAppTabela() {
                 <option value="TODOS">Status: Todos</option>
                 <option value="PENDENTES">Status: Pendentes</option>
                 <option value="ATENDEU">Status: Atendeu</option>
-                <option value="OUTRA_CIDADE">Status: Outra cidade</option>
+                <option value="OUTRA_CIDADE">Status: Mora/Vota em outra cidade</option>
                 <option value="NAO_ATENDEU">Status: Não atendeu/caixa postal</option>
                 <option value="NUMERO_NAO_EXISTE">Status: Número não existe</option>
                 <option value="RETORNO">Status: Retorno</option>
+                <option value="REMOVER_DA_LISTA">Status: Remover da lista</option>
               </select>
 
               {geoCols.estado ? (
@@ -1260,7 +1431,9 @@ function MiniAppTabela() {
                               ? 'rgba(239,68,68,.34)'
                               : r.STATUS === 'NAO_ATENDEU' || r.STATUS === 'CAIXA_POSTAL'
                                 ? 'rgba(245,158,11,.40)'
-                                : 'rgba(0,0,0,.08)';
+                                : r.STATUS === 'REMOVER_DA_LISTA'
+                                  ? 'rgba(124,58,237,.30)'
+                                  : 'rgba(0,0,0,.08)';
 
                     return (
                       <tr
