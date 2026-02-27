@@ -288,11 +288,6 @@ function retornoLabelFromObs(obs: string) {
   return m?.[1] || '';
 }
 
-function isRetornoObs(obs: string) {
-  const t = String(obs || '').trim();
-  return /^\d{1,2}:\d{2}$/.test(t) || /RETORNO\s*[-–—]?\s*\d{1,2}:\d{2}/i.test(t) || /^RETORNO$/i.test(t);
-}
-
 function outraCidadeFromObs(obs: string) {
   const t = String(obs || '').trim();
 
@@ -302,12 +297,6 @@ function outraCidadeFromObs(obs: string) {
   // caso venha com prefixo: "OUTRA_CIDADE - Santos"
   const m = t.match(/OUTRA_CIDADE\s*[-–—]?\s*(.*)$/i);
   return (m?.[1] || '').trim();
-}
-
-function isOutraCidadeObs(obs: string) {
-  const t = String(obs || '').trim();
-  // se for qualquer texto não-vazio e o status for OUTRA_CIDADE, vamos tratar como obs válida
-  return !!t;
 }
 
 // status pill
@@ -919,8 +908,8 @@ function MiniAppTabela() {
 
     let nextObs = row.OBSERVACAO;
 
-    if (row.STATUS === 'RETORNO' && newStatus !== 'RETORNO' && isRetornoObs(nextObs)) nextObs = '';
-    if (row.STATUS === 'OUTRA_CIDADE' && newStatus !== 'OUTRA_CIDADE' && isOutraCidadeObs(nextObs)) nextObs = '';
+    if (row.STATUS === 'RETORNO' && newStatus !== 'RETORNO') nextObs = '';
+    if (row.STATUS === 'OUTRA_CIDADE' && newStatus !== 'OUTRA_CIDADE') nextObs = '';
 
     updateRow(row.id, { STATUS: newStatus, OBSERVACAO: nextObs });
     markDirty(row, { STATUS: newStatus, OBSERVACAO: nextObs });
@@ -943,11 +932,20 @@ function MiniAppTabela() {
       setRetornoModalOpen(false);
       return;
     }
-    const obs = `RETORNO - ${hhmm}`;
+
+    const cleaned = String(hhmm || '').trim();
+    if (!/^\d{1,2}:\d{2}$/.test(cleaned)) {
+      window.alert('Selecione um horário válido.');
+      return;
+    }
+
+    const obs = cleaned; // ✅ salva LIMPO (ex: "13:40")
+
     updateRow(row.id, { STATUS: 'RETORNO', OBSERVACAO: obs });
     markDirty(row, { STATUS: 'RETORNO', OBSERVACAO: obs });
+
     setRetornoModalOpen(false);
-    setActionsOpen(false); // ✅ fecha ações só após confirmar
+    setActionsOpen(false);
   }
 
   function openOutraCidadePicker(row: Row) {
@@ -962,12 +960,19 @@ function MiniAppTabela() {
       setOutraCidadeModalOpen(false);
       return;
     }
+
     const cleaned = String(city || '').trim();
-    const obs = cleaned ? `OUTRA_CIDADE - ${cleaned}` : 'OUTRA_CIDADE';
+
+    // se quiser obrigar cidade, valida aqui:
+    // if (!cleaned) { window.alert('Digite uma cidade.'); return; }
+
+    const obs = cleaned; // ✅ salva LIMPO (ex: "Santos")
+
     updateRow(row.id, { STATUS: 'OUTRA_CIDADE', OBSERVACAO: obs });
     markDirty(row, { STATUS: 'OUTRA_CIDADE', OBSERVACAO: obs });
+
     setOutraCidadeModalOpen(false);
-    setActionsOpen(false); // ✅ fecha ações só após confirmar
+    setActionsOpen(false);
   }
 
   function callPhoneForRow(row: Row, which: 'TF1' | 'TF2') {
