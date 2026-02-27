@@ -275,22 +275,39 @@ function csvToRows(csv: string): Row[] {
   });
 }
 
-// OBS helpers
+// OBS helpers (✅ agora funcionam com OBS limpa também)
+
 function retornoLabelFromObs(obs: string) {
   const t = String(obs || '').trim();
+
+  // caso já venha limpo: "13:40"
+  if (/^\d{1,2}:\d{2}$/.test(t)) return t;
+
+  // caso venha com prefixo: "RETORNO - 13:40"
   const m = t.match(/RETORNO\s*[-–—]?\s*(\d{1,2}:\d{2})/i);
   return m?.[1] || '';
 }
+
 function isRetornoObs(obs: string) {
-  return /RETORNO\s*[-–—]?\s*\d{1,2}:\d{2}/i.test(String(obs || '').trim()) || /^RETORNO$/i.test(String(obs || '').trim());
+  const t = String(obs || '').trim();
+  return /^\d{1,2}:\d{2}$/.test(t) || /RETORNO\s*[-–—]?\s*\d{1,2}:\d{2}/i.test(t) || /^RETORNO$/i.test(t);
 }
+
 function outraCidadeFromObs(obs: string) {
   const t = String(obs || '').trim();
+
+  // caso venha limpo: "Santos"
+  if (t && !/^OUTRA_CIDADE/i.test(t)) return t;
+
+  // caso venha com prefixo: "OUTRA_CIDADE - Santos"
   const m = t.match(/OUTRA_CIDADE\s*[-–—]?\s*(.*)$/i);
   return (m?.[1] || '').trim();
 }
+
 function isOutraCidadeObs(obs: string) {
-  return /^OUTRA_CIDADE(\s*[-–—].*)?$/i.test(String(obs || '').trim());
+  const t = String(obs || '').trim();
+  // se for qualquer texto não-vazio e o status for OUTRA_CIDADE, vamos tratar como obs válida
+  return !!t;
 }
 
 // status pill
