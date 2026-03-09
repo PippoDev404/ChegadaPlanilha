@@ -461,7 +461,7 @@ function MiniTel({
         }}
         title={value || ''}
       >
-        {`Ligar ${label}`}
+        {`Ligar ${label} 📞`}
       </button>
 
       <button
