@@ -119,13 +119,11 @@ function obsToSave(status: Status, obs: string) {
   const t = String(obs || '').trim();
 
   if (status === 'OUTRA_CIDADE') {
-    // aceita "OUTRA_CIDADE - Santos/São Paulo" ou "Santos/São Paulo" ou "Santos"
     const city = outraCidadeFromObs(t) || t.replace(/^OUTRA\s*CIDADE\s*[-–—]?\s*/i, '').trim();
     return city;
   }
 
   if (status === 'RETORNO') {
-    // aceita "RETORNO - 13:40" ou "13:40"
     const hhmm = retornoLabelFromObs(t) || t.replace(/^RETORNO\s*[-–—]?\s*/i, '').trim();
     return hhmm;
   }
@@ -274,14 +272,12 @@ function csvToRows(csv: string): Row[] {
   });
 }
 
-// OBS helpers (✅ agora funcionam com OBS limpa também)
+// OBS helpers
 function retornoLabelFromObs(obs: string) {
   const t = String(obs || '').trim();
 
-  // caso já venha limpo: "13:40"
   if (/^\d{1,2}:\d{2}$/.test(t)) return t;
 
-  // caso venha com prefixo: "RETORNO - 13:40"
   const m = t.match(/RETORNO\s*[-–—]?\s*(\d{1,2}:\d{2})/i);
   return m?.[1] || '';
 }
@@ -289,10 +285,8 @@ function retornoLabelFromObs(obs: string) {
 function outraCidadeFromObs(obs: string) {
   const t = String(obs || '').trim();
 
-  // caso venha limpo: "Santos" ou "Santos/São Paulo"
   if (t && !/^OUTRA_CIDADE/i.test(t)) return t;
 
-  // caso venha com prefixo: "OUTRA_CIDADE - Santos/São Paulo"
   const m = t.match(/OUTRA_CIDADE\s*[-–—]?\s*(.*)$/i);
   return (m?.[1] || '').trim();
 }
@@ -339,7 +333,6 @@ function statusVars(s: Status) {
   }
 }
 
-// bg base da linha por status
 function rowBg(status: Status) {
   switch (status) {
     case 'NAO_ATENDEU':
@@ -552,7 +545,7 @@ function RetornoModal({
 }
 
 // =========================
-// MODAL: Outra cidade (SELECT com cidades do Brasil)
+// MODAL: Outra cidade (AUTOCOMPLETE)
 // =========================
 type IbgeMunicipio = {
   id: number;
@@ -565,7 +558,6 @@ type IbgeMunicipio = {
 };
 
 function getUfNomeFromMunicipio(m: IbgeMunicipio) {
-  // ✅ prioridade: nome completo do estado
   return (
     m?.microrregiao?.mesorregiao?.UF?.nome ||
     m?.microrregiao?.mesorregiao?.UF?.sigla ||
@@ -577,7 +569,7 @@ function cityLabel(nome: string, estadoNome: string) {
   const n = String(nome || '').trim();
   const e = String(estadoNome || '').trim();
   if (!n) return '';
-  return e ? `${n}/${e}` : n; // ✅ "Cidade/Estado"
+  return e ? `${n}/${e}` : n;
 }
 
 function OutraCidadeModal({
@@ -587,7 +579,7 @@ function OutraCidadeModal({
   onConfirm,
 }: {
   open: boolean;
-  initialValue: string; // esperado: "Cidade/Estado" ou "Cidade"
+  initialValue: string;
   onCancel: () => void;
   onConfirm: (city: string) => void;
 }) {
@@ -600,12 +592,10 @@ function OutraCidadeModal({
   useEffect(() => {
     if (!open) return;
 
-    // reset UI ao abrir
     setLoadErr('');
-    setQuery('');
+    setQuery(initialValue || '');
     setSelected(initialValue || '');
 
-    // carrega somente uma vez
     if (all.length) return;
 
     (async () => {
@@ -635,27 +625,26 @@ function OutraCidadeModal({
           .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
 
         setAll(mapped);
-
-        if (initialValue) setSelected(initialValue);
       } catch (e: any) {
         setLoadErr(String(e?.message || e || 'Erro ao carregar cidades do IBGE'));
       } finally {
         setLoading(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, initialValue, all.length]);
 
   const options = useMemo(() => {
     const q = String(query || '').trim().toLowerCase();
-    if (!q) return all.slice(0, 250);
 
-    // busca por "cidade", "estado", "cidade/estado"
+    if (!all.length) return [];
+
+    if (!q) return all.slice(0, 50);
+
     const out: { label: string; nome: string; estado: string }[] = [];
     for (const c of all) {
       const hay = `${c.label} ${c.nome} ${c.estado}`.toLowerCase();
       if (hay.includes(q)) out.push(c);
-      if (out.length >= 250) break;
+      if (out.length >= 50) break;
     }
     return out;
   }, [all, query]);
@@ -664,55 +653,93 @@ function OutraCidadeModal({
 
   return (
     <div onClick={onCancel} style={stylesModal.overlay}>
-      <div onClick={(e) => e.stopPropagation()} style={{ ...stylesModal.box, width: 'min(520px, 96vw)' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ ...stylesModal.box, width: 'min(560px, 96vw)' }}>
         <div style={stylesModal.header}>
           <div style={stylesModal.title}>🟠 Mora/Vota em outra cidade</div>
-          <div style={stylesModal.sub}>Selecione uma cidade (lista oficial IBGE)</div>
+          <div style={stylesModal.sub}>Digite e selecione rapidamente na lista abaixo</div>
         </div>
 
         <div style={{ padding: 12 }}>
           {loadErr ? (
-            <div style={{ marginBottom: 10, padding: 10, border: '1px solid var(--danger)', borderRadius: 10, fontSize: 12 }}>
+            <div
+              style={{
+                marginBottom: 10,
+                padding: 10,
+                border: '1px solid var(--danger)',
+                borderRadius: 10,
+                fontSize: 12,
+              }}
+            >
               ❌ {loadErr}
             </div>
           ) : null}
 
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={loading ? 'Carregando lista do IBGE…' : 'Digite para filtrar (ex: Santos, São Paulo, Santos/São Paulo)'}
+            onChange={(e) => {
+              const v = e.target.value;
+              setQuery(v);
+              setSelected(v);
+            }}
+            placeholder={loading ? 'Carregando lista do IBGE…' : 'Digite a cidade ou estado (ex: Santos, São Paulo, Santos/São Paulo)'}
             style={stylesModal.textInput}
             disabled={loading || !!loadErr}
+            autoFocus
           />
 
-          <div style={{ marginTop: 10 }}>
-            <select
-              value={selected}
-              onChange={(e) => setSelected(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '12px 12px',
-                borderRadius: 12,
-                border: '1px solid var(--border)',
-                background: 'var(--surface-2)',
-                color: 'var(--text)',
-                fontSize: 14,
-                fontWeight: 800,
-                outline: 'none',
-              }}
-              disabled={loading || !!loadErr}
-            >
-              <option value="">Selecione…</option>
-              {options.map((c) => (
-                <option key={c.label} value={c.label}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
+          <div
+            style={{
+              marginTop: 10,
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              background: 'var(--surface)',
+              maxHeight: 260,
+              overflowY: 'auto',
+            }}
+          >
+            {loading ? (
+              <div style={{ padding: 12, fontSize: 13, color: 'var(--text-muted)' }}>Carregando cidades…</div>
+            ) : options.length ? (
+              options.map((c) => {
+                const active = selected === c.label;
+                return (
+                  <button
+                    key={c.label}
+                    type="button"
+                    onClick={() => {
+                      setQuery(c.label);
+                      setSelected(c.label);
+                    }}
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '10px 12px',
+                      border: 'none',
+                      borderBottom: '1px solid var(--border)',
+                      background: active ? 'rgba(249,115,22,.14)' : 'var(--surface)',
+                      color: 'var(--text)',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      fontWeight: active ? 900 : 700,
+                    }}
+                  >
+                    {c.label}
+                  </button>
+                );
+              })
+            ) : (
+              <div style={{ padding: 12, fontSize: 13, color: 'var(--text-muted)' }}>
+                Nenhuma cidade encontrada.
+              </div>
+            )}
+          </div>
 
-            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-              {loading ? 'Carregando…' : all.length ? `Total de cidades: ${all.length} • Mostrando até ${options.length}` : '—'}
-            </div>
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+            {loading
+              ? 'Carregando…'
+              : all.length
+                ? `Total de cidades: ${all.length} • Mostrando até ${options.length}`
+                : '—'}
           </div>
 
           <div style={stylesModal.rowBtns}>
@@ -721,7 +748,7 @@ function OutraCidadeModal({
             </button>
             <button
               style={{ ...styles.btn, ...styles.btnPrimary }}
-              onClick={() => onConfirm(String(selected || '').trim())}
+              onClick={() => onConfirm(String(selected || query || '').trim())}
               disabled={loading || !!loadErr}
             >
               Confirmar
@@ -734,7 +761,7 @@ function OutraCidadeModal({
 }
 
 // =========================
-// MODAL: Ações da linha (todos os botões)
+// MODAL: Ações da linha
 // =========================
 function RowActionsModal({
   open,
@@ -778,7 +805,7 @@ function RowActionsModal({
             kind="warning"
             onClick={() => {
               onToggleStatus('NAO_ATENDEU');
-              onClose(); // ✅ fecha ao selecionar status
+              onClose();
             }}
           >
             🟡 Não atendeu/caixa postal
@@ -789,11 +816,10 @@ function RowActionsModal({
             kind="orange"
             onClick={() => {
               if (row.STATUS === 'OUTRA_CIDADE') {
-                onToggleStatus('OUTRA_CIDADE'); // toggle -> pendente
-                onClose(); // ✅ fecha ao destoggle
+                onToggleStatus('OUTRA_CIDADE');
+                onClose();
                 return;
               }
-              // ✅ só abre popup; status será definido no Confirm do popup
               onOpenOutraCidade();
             }}
           >
@@ -805,7 +831,7 @@ function RowActionsModal({
             kind="danger"
             onClick={() => {
               onToggleStatus('NUMERO_NAO_EXISTE');
-              onClose(); // ✅ fecha ao selecionar status
+              onClose();
             }}
           >
             🔴 Número não existe
@@ -816,11 +842,10 @@ function RowActionsModal({
             kind="blueDark"
             onClick={() => {
               if (row.STATUS === 'RETORNO') {
-                onToggleStatus('RETORNO'); // toggle -> pendente
-                onClose(); // ✅ fecha ao destoggle
+                onToggleStatus('RETORNO');
+                onClose();
                 return;
               }
-              // ✅ só abre popup; status será definido no Confirm do popup
               onOpenRetorno();
             }}
           >
@@ -832,7 +857,7 @@ function RowActionsModal({
             kind="success"
             onClick={() => {
               onToggleStatus('ATENDEU');
-              onClose(); // ✅ fecha ao selecionar status
+              onClose();
             }}
           >
             🟢 Atendeu
@@ -843,7 +868,7 @@ function RowActionsModal({
             kind="purple"
             onClick={() => {
               onToggleStatus('REMOVER_DA_LISTA');
-              onClose(); // ✅ fecha ao selecionar status
+              onClose();
             }}
           >
             🟣 Remover da lista
@@ -854,7 +879,7 @@ function RowActionsModal({
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <button
-                style={{ ...styles.btn, ...styles.btnPrimary }} // ✅ mesma cor
+                style={{ ...styles.btn, ...styles.btnPrimary }}
                 onClick={() => onCopy('IDP', row.IDP)}
                 title="Copiar IDP"
               >
@@ -897,13 +922,11 @@ function MiniAppTabela() {
 
   const [page, setPage] = useState(1);
 
-  // ✅ snackbar
   const [toast, setToast] = useState<string>('');
 
   const [dirty, setDirty] = useState<Record<string, { STATUS: Status; OBSERVACAO: string }>>({});
   const dirtyCount = useMemo(() => Object.keys(dirty).length, [dirty]);
 
-  // MODAIS
   const [actionsOpen, setActionsOpen] = useState(false);
   const [activeRowId, setActiveRowId] = useState<string>('');
   const activeRow = useMemo(() => allRows.find((r) => r.id === activeRowId) || null, [allRows, activeRowId]);
@@ -914,7 +937,6 @@ function MiniAppTabela() {
   const [outraCidadeModalOpen, setOutraCidadeModalOpen] = useState(false);
   const [outraCidadeInitial, setOutraCidadeInitial] = useState<string>('');
 
-  // ✅ GET
   useEffect(() => {
     const entregaId = getEntregaIdOnly();
     if (!entregaId) {
@@ -952,7 +974,6 @@ function MiniAppTabela() {
     })();
   }, []);
 
-  // ✅ payload -> rows
   useEffect(() => {
     if (!payload || payload.length === 0) return;
 
@@ -1058,7 +1079,6 @@ function MiniAppTabela() {
     setSaveTick((x) => x + 1);
   }
 
-  // ✅ limpa OBS quando sai de retorno/outra cidade
   function toggleStatusForRow(row: Row, next: Exclude<Status, 'PENDENTE'>) {
     const newStatus: Status = row.STATUS === next ? 'PENDENTE' : next;
 
@@ -1095,7 +1115,7 @@ function MiniAppTabela() {
       return;
     }
 
-    const obs = cleaned; // ✅ salva LIMPO (ex: "13:40")
+    const obs = cleaned;
 
     updateRow(row.id, { STATUS: 'RETORNO', OBSERVACAO: obs });
     markDirty(row, { STATUS: 'RETORNO', OBSERVACAO: obs });
@@ -1124,7 +1144,7 @@ function MiniAppTabela() {
       return;
     }
 
-    const obs = cleaned; // ✅ salva LIMPO (ex: "Santos/São Paulo")
+    const obs = cleaned;
 
     updateRow(row.id, { STATUS: 'OUTRA_CIDADE', OBSERVACAO: obs });
     markDirty(row, { STATUS: 'OUTRA_CIDADE', OBSERVACAO: obs });
@@ -1153,7 +1173,6 @@ function MiniAppTabela() {
     }
   }
 
-  // ✅ AUTOSAVE
   useEffect(() => {
     const entrega_id = getEntregaIdOnly();
     if (!entrega_id) return;
@@ -1233,7 +1252,6 @@ function MiniAppTabela() {
     <div style={{ padding: 12 }}>
       <style>{globalCss}</style>
 
-      {/* MODAIS */}
       <RowActionsModal
         open={actionsOpen}
         row={activeRow}
