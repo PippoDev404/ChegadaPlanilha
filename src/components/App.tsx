@@ -1,13 +1,3 @@
-// App.tsx (arquivo completo)
-// ✅ Mudanças aplicadas AGORA (além das suas):
-// 1) Novo status: REMOVER_DA_LISTA (roxo)
-// 2) "Outra cidade" agora é um SELECT com TODAS as cidades do Brasil via API do IBGE (com busca)
-//    ✅ AGORA: mostra o NOME COMPLETO do estado (ex: "Santos/São Paulo")
-// 3) Botões: Copiar IDP, Ligar TF1/TF2 e Copiar TF1/TF2 ficam TODOS da mesma cor (primary)
-// 4) Mantidas as regras de fechar modal de ações automaticamente conforme você já definiu
-//    - Para popup: fecha após Confirmar (e fecha ao destoggle -> pendente)
-//    - Copiar/Ligar não fecha modal
-
 import React, { useEffect, useMemo, useState } from 'react';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 
@@ -870,8 +860,8 @@ function RowActionsModal({
                 Copiar IDP 📋
               </button>
 
-              <MiniTel label="TF1" value={row.TF1} disabled={!tf1} onClick={() => onCall('TF1')} onCopy={() => onCopy('TF1', row.TF1)} />
-              <MiniTel label="TF2" value={row.TF2} disabled={!tf2} onClick={() => onCall('TF2')} onCopy={() => onCopy('TF2', row.TF2)} />
+              <MiniTel label="Ligar TF1" value={row.TF1} disabled={!tf1} onClick={() => onCall('TF1')} onCopy={() => onCopy('TF1', row.TF1)} />
+              <MiniTel label="Ligar TF2" value={row.TF2} disabled={!tf2} onClick={() => onCall('TF2')} onCopy={() => onCopy('TF2', row.TF2)} />
             </div>
 
             <button style={styles.btn} onClick={onClose}>
