@@ -638,15 +638,48 @@ function OutraCidadeModal({
 
     if (!all.length) return [];
 
+    // Sem busca: mostra primeiras cidades em ordem
     if (!q) return all.slice(0, 50);
 
-    const out: { label: string; nome: string; estado: string }[] = [];
-    for (const c of all) {
-      const hay = `${c.label} ${c.nome} ${c.estado}`.toLowerCase();
-      if (hay.includes(q)) out.push(c);
-      if (out.length >= 50) break;
+    // 1) prioridade máxima: cidade começa com o texto digitado
+    const startsWithNome = all.filter((c) =>
+      String(c.nome || '').trim().toLowerCase().startsWith(q)
+    );
+
+    if (startsWithNome.length) {
+      return startsWithNome
+        .sort((a, b) => {
+          const aNome = a.nome.toLowerCase();
+          const bNome = b.nome.toLowerCase();
+
+          // cidade com nome EXATO vem primeiro
+          if (aNome === q && bNome !== q) return -1;
+          if (bNome === q && aNome !== q) return 1;
+
+          // depois ordem alfabética normal do label
+          return a.label.localeCompare(b.label, 'pt-BR');
+        })
+        .slice(0, 50);
     }
-    return out;
+
+    // 2) fallback: busca por começo de qualquer palavra do nome da cidade
+    // Ex.: "Paulo" encontra "São Paulo", mas ainda sem usar estado
+    const startsWithWordInNome = all.filter((c) =>
+      String(c.nome || '')
+        .trim()
+        .toLowerCase()
+        .split(/\s+/)
+        .some((part) => part.startsWith(q))
+    );
+
+    if (startsWithWordInNome.length) {
+      return startsWithWordInNome
+        .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
+        .slice(0, 50);
+    }
+
+    // 3) se não achou nada, não mistura com estado
+    return [];
   }, [all, query]);
 
   if (!open) return null;
@@ -656,7 +689,7 @@ function OutraCidadeModal({
       <div onClick={(e) => e.stopPropagation()} style={{ ...stylesModal.box, width: 'min(560px, 96vw)' }}>
         <div style={stylesModal.header}>
           <div style={stylesModal.title}>🟠 Mora/Vota em outra cidade</div>
-          <div style={stylesModal.sub}>Digite e selecione rapidamente na lista abaixo</div>
+          <div style={stylesModal.sub}>Digite o começo do nome da cidade</div>
         </div>
 
         <div style={{ padding: 12 }}>
@@ -681,7 +714,7 @@ function OutraCidadeModal({
               setQuery(v);
               setSelected(v);
             }}
-            placeholder={loading ? 'Carregando lista do IBGE…' : 'Digite a cidade ou estado (ex: Santos, São Paulo, Santos/São Paulo)'}
+            placeholder={loading ? 'Carregando lista do IBGE…' : 'Digite a cidade (ex: Santos, São Paulo, Mauá)'}
             style={stylesModal.textInput}
             disabled={loading || !!loadErr}
             autoFocus
