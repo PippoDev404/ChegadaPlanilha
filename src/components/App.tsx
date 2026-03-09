@@ -440,6 +440,7 @@ function MiniTel({
   onCopy: () => void;
 }) {
   const enabled = !disabled;
+
   return (
     <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
       <button
@@ -447,7 +448,7 @@ function MiniTel({
         onClick={onClick}
         style={{
           ...styles.btn,
-          ...styles.btnPrimary, // ✅ mesma cor
+          ...styles.btnPrimary,
           background: enabled ? 'var(--primary)' : 'var(--surfaceMuted)',
           color: enabled ? 'var(--primary-text)' : 'var(--text-muted)',
           borderColor: 'var(--border)',
@@ -460,7 +461,7 @@ function MiniTel({
         }}
         title={value || ''}
       >
-        {label} 📞
+        {`Ligar ${label}`}
       </button>
 
       <button
@@ -468,7 +469,7 @@ function MiniTel({
         onClick={onCopy}
         style={{
           ...styles.btn,
-          ...styles.btnPrimary, // ✅ mesma cor
+          ...styles.btnPrimary,
           background: value ? 'var(--primary)' : 'var(--surfaceMuted)',
           color: value ? 'var(--primary-text)' : 'var(--text-muted)',
           borderColor: 'var(--border)',
@@ -481,7 +482,7 @@ function MiniTel({
         }}
         title={value ? `Copiar ${label}` : ''}
       >
-        {`COPIAR ${label}`}
+        {`Copiar ${label}`}
       </button>
     </div>
   );
@@ -860,8 +861,8 @@ function RowActionsModal({
                 Copiar IDP 📋
               </button>
 
-              <MiniTel label="Ligar TF1" value={row.TF1} disabled={!tf1} onClick={() => onCall('TF1')} onCopy={() => onCopy('TF1', row.TF1)} />
-              <MiniTel label="Ligar TF2" value={row.TF2} disabled={!tf2} onClick={() => onCall('TF2')} onCopy={() => onCopy('TF2', row.TF2)} />
+              <MiniTel label="TF1" value={row.TF1} disabled={!tf1} onClick={() => onCall('TF1')} onCopy={() => onCopy('TF1', row.TF1)} />
+              <MiniTel label="TF2" value={row.TF2} disabled={!tf2} onClick={() => onCall('TF2')} onCopy={() => onCopy('TF2', row.TF2)} />
             </div>
 
             <button style={styles.btn} onClick={onClose}>
