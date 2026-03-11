@@ -145,6 +145,45 @@ function nowLocalStamp() {
   return `${dd}/${mm}/${yyyy} ${hh}:${mi}:${ss}`;
 }
 
+function normalizeHeader(h: string) {
+  return String(h || '')
+    .replace(/^\uFEFF/, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toUpperCase();
+}
+
+function canonicalHeaderKey(h: string) {
+  const n = normalizeHeader(h)
+    .replace(/[.\-\/\\]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  const semSufixo = n.replace(/_\d+$/, '');
+
+  if (semSufixo === 'STATUS') return 'STATUS';
+  if (semSufixo === 'OBSERVACAO') return 'OBSERVACAO';
+
+  const dtCompacto = semSufixo.replace(/_/g, '');
+  if (dtCompacto === 'DTALTERACAO') return 'DT_ALTERACAO';
+
+  if (semSufixo === 'LINE') return 'LINE';
+  if (semSufixo === 'IDP') return 'IDP';
+  if (semSufixo === 'ESTADO' || semSufixo === 'UF') return 'ESTADO';
+  if (semSufixo === 'CIDADE') return 'CIDADE';
+  if (semSufixo === 'REGIAOCIDADE' || semSufixo === 'REGIAO_CIDADE' || semSufixo === 'REGIAO') return 'REGIAO_CIDADE';
+  if (semSufixo === 'TF1' || semSufixo === 'TEL1' || semSufixo === 'TELEFONE1' || semSufixo === 'TELEFONE_1') return 'TF1';
+  if (semSufixo === 'TF2' || semSufixo === 'TEL2' || semSufixo === 'TELEFONE2' || semSufixo === 'TELEFONE_2') return 'TF2';
+
+  return semSufixo;
+}
+
+function findHeaderIndex(headers: string[], familyKey: string) {
+  return headers.findIndex((h) => canonicalHeaderKey(h) === familyKey);
+}
+
 function sanitizeStatus(raw: string): Status {
   const s = toUpperTrim(raw);
 
@@ -275,17 +314,7 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
     return out.map((x) => x.trim());
   };
 
-  let headers = splitLine(lines[0]).map((h) => h.replace(/^"|"$/g, '').trim());
-
-  const hasDtAlteracao = headers.some((h) =>
-    ['DT.ALTERACAO', 'dt.Alteração', 'dt.Alteracao', 'DT_ALTERACAO', 'ULTIMA_ALTERACAO'].includes(
-      String(h || '').trim()
-    )
-  );
-
-  if (!hasDtAlteracao) {
-    headers = [...headers, 'DT.ALTERACAO'];
-  }
+  const headers = splitLine(lines[0]).map((h) => h.replace(/^"|"$/g, '').trim());
 
   const rows = lines.slice(1).map((ln) => {
     const cols = splitLine(ln);
@@ -295,44 +324,43 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
       obj[h] = (cols[idx] ?? '').replace(/^"|"$/g, '');
     });
 
-    if (!('DT.ALTERACAO' in obj) && !('dt.Alteração' in obj)) {
-      obj['DT.ALTERACAO'] = '';
-    }
-
     return obj;
   });
 
   return { headers, rows };
 }
 
-function pickKey(obj: Record<string, string>, keys: string[]) {
-  for (const k of keys) if (k in obj) return obj[k];
-  return '';
+function pickCanonicalValue(obj: Record<string, string>, headers: string[], familyKey: string) {
+  const idx = headers.findIndex((h) => canonicalHeaderKey(h) === familyKey);
+  if (idx === -1) return '';
+  const realHeader = headers[idx];
+  return String(obj[realHeader] ?? '');
 }
 
 function csvToRows(csv: string): Row[] {
-  const { rows } = parseCsv(csv);
+  const { headers, rows } = parseCsv(csv);
   if (!rows.length) return [];
 
   return rows.map((r, idx) => {
-    const IDP = pickKey(r, ['IDP', 'Idp', 'idp', 'ID']) || String(idx + 1);
+    const lineCsv = pickCanonicalValue(r, headers, 'LINE');
+    const IDP = pickCanonicalValue(r, headers, 'IDP') || String(idx + 1);
 
-    const ESTADO = pickKey(r, ['ESTADO', 'UF', 'Uf']) || '';
-    const CIDADE = pickKey(r, ['CIDADE', 'Cidade']) || '';
-    const REGIAO_CIDADE =
-      pickKey(r, ['REGIAO_CIDADE', 'REGIÃO CIDADE', 'REGIAO CIDADE', 'REGIÃO', 'REGIAO']) || '';
+    const ESTADO = pickCanonicalValue(r, headers, 'ESTADO') || '';
+    const CIDADE = pickCanonicalValue(r, headers, 'CIDADE') || '';
+    const REGIAO_CIDADE = pickCanonicalValue(r, headers, 'REGIAO_CIDADE') || '';
 
-    const TF1 = pickKey(r, ['TF1', 'TEL1', 'TELEFONE1', 'TELEFONE 1']) || '';
-    const TF2 = pickKey(r, ['TF2', 'TEL2', 'TELEFONE2', 'TELEFONE 2']) || '';
+    const TF1 = pickCanonicalValue(r, headers, 'TF1') || '';
+    const TF2 = pickCanonicalValue(r, headers, 'TF2') || '';
 
-    const statusCsv = pickKey(r, ['STATUS', 'Status']) || 'PENDENTE';
-    const obsCsv = pickKey(r, ['OBSERVACAO', 'OBSERVAÇÃO', 'Observacao', 'Observação']) || '';
-    const dtAlteracaoCsv =
-      pickKey(r, ['DT.ALTERACAO', 'dt.Alteração', 'dt.Alteracao', 'DT_ALTERACAO', 'ULTIMA_ALTERACAO']) || '';
+    const statusCsv = pickCanonicalValue(r, headers, 'STATUS') || 'PENDENTE';
+    const obsCsv = pickCanonicalValue(r, headers, 'OBSERVACAO') || '';
+    const dtAlteracaoCsv = pickCanonicalValue(r, headers, 'DT_ALTERACAO') || '';
+
+    const lineNum = Number(String(lineCsv || '').trim());
 
     return {
       id: `row-${idx + 1}`,
-      LINE: idx + 1,
+      LINE: Number.isFinite(lineNum) && lineNum > 0 ? lineNum : idx + 1,
       IDP: String(IDP || ''),
       ESTADO: String(ESTADO || ''),
       CIDADE: String(CIDADE || ''),
