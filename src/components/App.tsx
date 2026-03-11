@@ -297,23 +297,34 @@ function pickKey(obj: Record<string, string>, keys: string[]) {
 }
 
 function csvToRows(csv: string): Row[] {
-  const { rows } = parseCsv(csv);
+  const { headers, rows } = parseCsv(csv);
   if (!rows.length) return [];
+
+  const hasUltimaAlteracao = headers.some((h) =>
+    ['ULTIMA_ALTERACAO', 'ÚLTIMA_ALTERAÇÃO', 'ultima_alteracao', 'ultima_alteracao_em'].includes(
+      String(h || '').trim()
+    )
+  );
 
   return rows.map((r, idx) => {
     const IDP = pickKey(r, ['IDP', 'Idp', 'idp', 'ID']) || String(idx + 1);
 
     const ESTADO = pickKey(r, ['ESTADO', 'UF', 'Uf']) || '';
     const CIDADE = pickKey(r, ['CIDADE', 'Cidade']) || '';
-    const REGIAO_CIDADE = pickKey(r, ['REGIAO_CIDADE', 'REGIÃO CIDADE', 'REGIAO CIDADE', 'REGIÃO', 'REGIAO']) || '';
+    const REGIAO_CIDADE =
+      pickKey(r, ['REGIAO_CIDADE', 'REGIÃO CIDADE', 'REGIAO CIDADE', 'REGIÃO', 'REGIAO']) || '';
 
     const TF1 = pickKey(r, ['TF1', 'TEL1', 'TELEFONE1', 'TELEFONE 1']) || '';
     const TF2 = pickKey(r, ['TF2', 'TEL2', 'TELEFONE2', 'TELEFONE 2']) || '';
 
     const statusCsv = pickKey(r, ['STATUS', 'Status']) || 'PENDENTE';
     const obsCsv = pickKey(r, ['OBSERVACAO', 'OBSERVAÇÃO', 'Observacao', 'Observação']) || '';
-    const ultimaAlteracaoCsv =
-      pickKey(r, ['ULTIMA_ALTERACAO', 'ÚLTIMA_ALTERAÇÃO', 'ultima_alteracao', 'ultima_alteracao_em']) || '';
+
+    // se a coluna existir no CSV, lê o valor
+    // se não existir, cria vazia para a linha
+    const ultimaAlteracaoCsv = hasUltimaAlteracao
+      ? pickKey(r, ['ULTIMA_ALTERACAO', 'ÚLTIMA_ALTERAÇÃO', 'ultima_alteracao', 'ultima_alteracao_em']) || ''
+      : '';
 
     return {
       id: `row-${idx + 1}`,
