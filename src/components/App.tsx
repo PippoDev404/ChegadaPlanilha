@@ -244,7 +244,6 @@ function obsToSave(status: Status, obs: string) {
     return hhmm;
   }
 
-  // SO_MORA e SO_VOTA agora são status próprios, então observação deve ficar vazia
   if (status === 'SO_MORA' || status === 'SO_VOTA') {
     return '';
   }
@@ -326,11 +325,29 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
   return { headers, rows };
 }
 
+/**
+ * PEGA O ÚLTIMO VALOR PREENCHIDO ENTRE TODAS AS COLUNAS
+ * DA MESMA FAMÍLIA:
+ * - STATUS / STATUS_1 / STATUS_2
+ * - OBSERVACAO / OBSERVACAO_1
+ * - DT_ALTERACAO / DT_ALTERACAO_1
+ */
 function pickCanonicalValue(obj: Record<string, string>, headers: string[], familyKey: string) {
-  const idx = headers.findIndex((h) => canonicalHeaderKey(h) === familyKey);
-  if (idx === -1) return '';
-  const realHeader = headers[idx];
-  return String(obj[realHeader] ?? '');
+  const matchingHeaders = headers.filter((h) => canonicalHeaderKey(h) === familyKey);
+
+  if (!matchingHeaders.length) return '';
+
+  const values = matchingHeaders
+    .map((realHeader) => String(obj[realHeader] ?? ''))
+    .map((v) => v.trim());
+
+  // prioridade para o ÚLTIMO preenchido
+  for (let i = values.length - 1; i >= 0; i--) {
+    if (values[i]) return values[i];
+  }
+
+  // se todos vazios, devolve o último mesmo
+  return values[values.length - 1] || '';
 }
 
 function csvToRows(csv: string): Row[] {
