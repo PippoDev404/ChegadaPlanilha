@@ -296,7 +296,7 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
     });
 
     if (!('DT.ALTERACAO' in obj) && !('dt.Alteração' in obj)) {
-      obj.DT.ALTERACAO = '';
+      obj['DT.ALTERACAO'] = '';
     }
 
     return obj;
