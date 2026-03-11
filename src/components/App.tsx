@@ -755,7 +755,7 @@ function OutraCidadeModal({
     <div onClick={onCancel} style={stylesModal.overlay}>
       <div onClick={(e) => e.stopPropagation()} style={{ ...stylesModal.box, width: 'min(560px, 96vw)' }}>
         <div style={stylesModal.header}>
-          <div style={stylesModal.title}>🟠 Mora/Vota em outra cidade</div>
+          <div style={stylesModal.title}> Mora/Vota em outra cidade</div>
           <div style={stylesModal.sub}>Digite o começo do nome da cidade ou escolha NQ Responder</div>
         </div>
 
@@ -941,7 +941,7 @@ function RowActionsModal({
               onClose();
             }}
           >
-            🟡 Não atendeu/caixa postal
+             Não atendeu/caixa postal
           </ActionButton>
 
           <ActionButton
@@ -951,7 +951,7 @@ function RowActionsModal({
               onOpenOutraCidade();
             }}
           >
-            🟠 Mora/Vota em outra cidade
+             Mora/Vota em outra cidade
           </ActionButton>
 
           <ActionButton
@@ -962,7 +962,7 @@ function RowActionsModal({
               onClose();
             }}
           >
-            🟦 Só mora na cidade
+             Só mora na cidade
           </ActionButton>
 
           <ActionButton
@@ -973,7 +973,7 @@ function RowActionsModal({
               onClose();
             }}
           >
-            🩷 Só vota na cidade
+             Só vota na cidade
           </ActionButton>
 
           <ActionButton
@@ -984,7 +984,7 @@ function RowActionsModal({
               onClose();
             }}
           >
-            🔴 Número não existe
+             Número não existe
           </ActionButton>
 
           <ActionButton
@@ -999,7 +999,7 @@ function RowActionsModal({
               onOpenRetorno();
             }}
           >
-            🟦 Retorno
+             Retorno
           </ActionButton>
 
           <ActionButton
@@ -1010,7 +1010,7 @@ function RowActionsModal({
               onClose();
             }}
           >
-            🟢 Atendeu
+             Atendeu
           </ActionButton>
 
           <ActionButton
@@ -1021,7 +1021,7 @@ function RowActionsModal({
               onClose();
             }}
           >
-            🟣 Remover da lista
+             Remover da lista
           </ActionButton>
         </div>
 
