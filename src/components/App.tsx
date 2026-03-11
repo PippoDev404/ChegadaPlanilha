@@ -34,7 +34,7 @@ type Row = {
   OBSERVACAO: string;
 
   // coluna do CSV, mas não visível na tabela
-  ULTIMA_ALTERACAO: string;
+  DT_ALTERACAO: string;
 };
 
 type StatusFilter = 'TODOS' | 'PENDENTES' | Status;
@@ -204,7 +204,7 @@ function outraCidadeLabel(obs: string) {
   return t ? `MORA/VOTA EM OUTRA CIDADE • ${t}` : 'MORA/VOTA EM OUTRA CIDADE';
 }
 
-// ✅ salva o valor puro no backend
+// salva o valor puro no backend
 function obsToSave(status: Status, obs: string) {
   const t = String(obs || '').trim();
 
@@ -280,15 +280,15 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
 
   let headers = splitLine(lines[0]).map((h) => h.replace(/^"|"$/g, '').trim());
 
-  const hasUltimaAlteracao = headers.some((h) =>
-    ['ULTIMA_ALTERACAO', 'ÚLTIMA_ALTERAÇÃO', 'ultima_alteracao', 'ultima_alteracao_em'].includes(
+  const hasDtAlteracao = headers.some((h) =>
+    ['dt.Alteração', 'dt.Alteracao', 'DT_ALTERACAO', 'ULTIMA_ALTERACAO'].includes(
       String(h || '').trim()
     )
   );
 
-  // ✅ cria a coluna no CSV lógico, mesmo que ela não venha no arquivo
-  if (!hasUltimaAlteracao) {
-    headers = [...headers, 'ULTIMA_ALTERACAO'];
+  // cria a coluna no CSV lógico, mesmo que ela não venha no arquivo
+  if (!hasDtAlteracao) {
+    headers = [...headers, 'dt.Alteração'];
   }
 
   const rows = lines.slice(1).map((ln) => {
@@ -296,13 +296,12 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
     const obj: Record<string, string> = {};
 
     headers.forEach((h, idx) => {
-      // se a coluna foi adicionada artificialmente, ela vem vazia
       obj[h] = (cols[idx] ?? '').replace(/^"|"$/g, '');
     });
 
-    // ✅ garante a coluna em toda linha
-    if (!('ULTIMA_ALTERACAO' in obj)) {
-      obj.ULTIMA_ALTERACAO = '';
+    // garante a coluna em toda linha
+    if (!('dt.Alteração' in obj)) {
+      obj['dt.Alteração'] = '';
     }
 
     return obj;
@@ -333,8 +332,8 @@ function csvToRows(csv: string): Row[] {
 
     const statusCsv = pickKey(r, ['STATUS', 'Status']) || 'PENDENTE';
     const obsCsv = pickKey(r, ['OBSERVACAO', 'OBSERVAÇÃO', 'Observacao', 'Observação']) || '';
-    const ultimaAlteracaoCsv =
-      pickKey(r, ['ULTIMA_ALTERACAO', 'ÚLTIMA_ALTERAÇÃO', 'ultima_alteracao', 'ultima_alteracao_em']) || '';
+    const dtAlteracaoCsv =
+      pickKey(r, ['dt.Alteração', 'dt.Alteracao', 'DT_ALTERACAO', 'ULTIMA_ALTERACAO']) || '';
 
     return {
       id: `row-${idx + 1}`,
@@ -347,7 +346,7 @@ function csvToRows(csv: string): Row[] {
       TF2: String(TF2 || ''),
       STATUS: sanitizeStatus(statusCsv),
       OBSERVACAO: String(obsCsv || ''),
-      ULTIMA_ALTERACAO: String(ultimaAlteracaoCsv || ''),
+      DT_ALTERACAO: String(dtAlteracaoCsv || ''),
     };
   });
 }
@@ -628,11 +627,7 @@ type IbgeMunicipio = {
 };
 
 function getUfNomeFromMunicipio(m: IbgeMunicipio) {
-  return (
-    m?.microrregiao?.mesorregiao?.UF?.nome ||
-    m?.microrregiao?.mesorregiao?.UF?.sigla ||
-    ''
-  );
+  return m?.microrregiao?.mesorregiao?.UF?.nome || m?.microrregiao?.mesorregiao?.UF?.sigla || '';
 }
 
 function cityLabel(nome: string, estadoNome: string) {
@@ -1071,7 +1066,7 @@ function MiniAppTabela() {
 
   const [toast, setToast] = useState<string>('');
 
-  const [dirty, setDirty] = useState<Record<string, { STATUS: Status; OBSERVACAO: string; ULTIMA_ALTERACAO: string }>>({});
+  const [dirty, setDirty] = useState<Record<string, { STATUS: Status; OBSERVACAO: string; DT_ALTERACAO: string }>>({});
   const dirtyCount = useMemo(() => Object.keys(dirty).length, [dirty]);
 
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -1212,17 +1207,17 @@ function MiniAppTabela() {
     setAllRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   }
 
-  function markDirty(row: Row, patch: { STATUS?: Status; OBSERVACAO?: string; ULTIMA_ALTERACAO?: string }) {
+  function markDirty(row: Row, patch: { STATUS?: Status; OBSERVACAO?: string; DT_ALTERACAO?: string }) {
     const nextStatus = patch.STATUS ?? row.STATUS;
     const nextObs = patch.OBSERVACAO ?? row.OBSERVACAO ?? '';
-    const nextUltimaAlteracao = patch.ULTIMA_ALTERACAO ?? row.ULTIMA_ALTERACAO ?? nowLocalStamp();
+    const nextDtAlteracao = patch.DT_ALTERACAO ?? row.DT_ALTERACAO ?? nowLocalStamp();
 
     setDirty((prev) => ({
       ...prev,
       [String(row.LINE)]: {
         STATUS: nextStatus,
         OBSERVACAO: nextObs,
-        ULTIMA_ALTERACAO: nextUltimaAlteracao,
+        DT_ALTERACAO: nextDtAlteracao,
       },
     }));
     setSaveTick((x) => x + 1);
@@ -1234,13 +1229,13 @@ function MiniAppTabela() {
     updateRow(row.id, {
       STATUS: nextStatus,
       OBSERVACAO: nextObs,
-      ULTIMA_ALTERACAO: stamp,
+      DT_ALTERACAO: stamp,
     });
 
     markDirty(row, {
       STATUS: nextStatus,
       OBSERVACAO: nextObs,
-      ULTIMA_ALTERACAO: stamp,
+      DT_ALTERACAO: stamp,
     });
   }
 
@@ -1353,7 +1348,7 @@ function MiniAppTabela() {
           LINE: Number(lineStr),
           STATUS: status,
           OBSERVACAO: obsClean,
-          ULTIMA_ALTERACAO: v.ULTIMA_ALTERACAO,
+          'dt.Alteração': v.DT_ALTERACAO,
           ts: new Date().toISOString(),
         };
       });
