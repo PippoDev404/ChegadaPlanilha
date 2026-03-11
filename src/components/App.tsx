@@ -180,10 +180,6 @@ function canonicalHeaderKey(h: string) {
   return semSufixo;
 }
 
-function findHeaderIndex(headers: string[], familyKey: string) {
-  return headers.findIndex((h) => canonicalHeaderKey(h) === familyKey);
-}
-
 function sanitizeStatus(raw: string): Status {
   const s = toUpperTrim(raw);
 
