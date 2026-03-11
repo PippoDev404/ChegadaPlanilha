@@ -278,13 +278,33 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
     return out.map((x) => x.trim());
   };
 
-  const headers = splitLine(lines[0]).map((h) => h.replace(/^"|"$/g, '').trim());
+  let headers = splitLine(lines[0]).map((h) => h.replace(/^"|"$/g, '').trim());
+
+  const hasUltimaAlteracao = headers.some((h) =>
+    ['ULTIMA_ALTERACAO', 'ÚLTIMA_ALTERAÇÃO', 'ultima_alteracao', 'ultima_alteracao_em'].includes(
+      String(h || '').trim()
+    )
+  );
+
+  // ✅ cria a coluna no CSV lógico, mesmo que ela não venha no arquivo
+  if (!hasUltimaAlteracao) {
+    headers = [...headers, 'ULTIMA_ALTERACAO'];
+  }
+
   const rows = lines.slice(1).map((ln) => {
     const cols = splitLine(ln);
     const obj: Record<string, string> = {};
+
     headers.forEach((h, idx) => {
+      // se a coluna foi adicionada artificialmente, ela vem vazia
       obj[h] = (cols[idx] ?? '').replace(/^"|"$/g, '');
     });
+
+    // ✅ garante a coluna em toda linha
+    if (!('ULTIMA_ALTERACAO' in obj)) {
+      obj.ULTIMA_ALTERACAO = '';
+    }
+
     return obj;
   });
 
@@ -297,14 +317,8 @@ function pickKey(obj: Record<string, string>, keys: string[]) {
 }
 
 function csvToRows(csv: string): Row[] {
-  const { headers, rows } = parseCsv(csv);
+  const { rows } = parseCsv(csv);
   if (!rows.length) return [];
-
-  const hasUltimaAlteracao = headers.some((h) =>
-    ['ULTIMA_ALTERACAO', 'ÚLTIMA_ALTERAÇÃO', 'ultima_alteracao', 'ultima_alteracao_em'].includes(
-      String(h || '').trim()
-    )
-  );
 
   return rows.map((r, idx) => {
     const IDP = pickKey(r, ['IDP', 'Idp', 'idp', 'ID']) || String(idx + 1);
@@ -319,12 +333,8 @@ function csvToRows(csv: string): Row[] {
 
     const statusCsv = pickKey(r, ['STATUS', 'Status']) || 'PENDENTE';
     const obsCsv = pickKey(r, ['OBSERVACAO', 'OBSERVAÇÃO', 'Observacao', 'Observação']) || '';
-
-    // se a coluna existir no CSV, lê o valor
-    // se não existir, cria vazia para a linha
-    const ultimaAlteracaoCsv = hasUltimaAlteracao
-      ? pickKey(r, ['ULTIMA_ALTERACAO', 'ÚLTIMA_ALTERAÇÃO', 'ultima_alteracao', 'ultima_alteracao_em']) || ''
-      : '';
+    const ultimaAlteracaoCsv =
+      pickKey(r, ['ULTIMA_ALTERACAO', 'ÚLTIMA_ALTERAÇÃO', 'ultima_alteracao', 'ultima_alteracao_em']) || '';
 
     return {
       id: `row-${idx + 1}`,
