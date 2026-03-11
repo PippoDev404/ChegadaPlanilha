@@ -130,10 +130,6 @@ function telToDial(v: string) {
   return `0${digits}`;
 }
 
-function toUpperTrim(v: string) {
-  return String(v || '').trim().toUpperCase();
-}
-
 function nowLocalStamp() {
   const d = new Date();
   const dd = String(d.getDate()).padStart(2, '0');
@@ -181,26 +177,49 @@ function canonicalHeaderKey(h: string) {
 }
 
 function sanitizeStatus(raw: string): Status {
-  const s = toUpperTrim(raw);
+  const s = String(raw || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '_')
+    .replace(/-+/g, '_');
+
+  if (!s) return 'PENDENTE';
 
   if (s === 'SEM_RESPOSTA') return 'RETORNO';
   if (s === 'LIGAR_MAIS_TARDE') return 'RETORNO';
   if (s.startsWith('RETORNO')) return 'RETORNO';
 
+  if (s === 'ATENDEU') return 'ATENDEU';
+
   if (
-    s === 'PENDENTE' ||
-    s === 'ATENDEU' ||
-    s === 'OUTRA_CIDADE' ||
-    s === 'SO_MORA' ||
-    s === 'SO_VOTA' ||
     s === 'NAO_ATENDEU' ||
-    s === 'CAIXA_POSTAL' ||
-    s === 'RETORNO' ||
-    s === 'NUMERO_NAO_EXISTE' ||
-    s === 'REMOVER_DA_LISTA'
+    s === 'NAO_ATENDEU_CAIXA_POSTAL' ||
+    s === 'CAIXA_POSTAL'
   ) {
-    return s as Status;
+    return 'NAO_ATENDEU';
   }
+
+  if (s === 'OUTRA_CIDADE') return 'OUTRA_CIDADE';
+  if (s === 'SO_MORA') return 'SO_MORA';
+  if (s === 'SO_VOTA') return 'SO_VOTA';
+
+  if (
+    s === 'NUMERO_NAO_EXISTE' ||
+    s === 'NUMERO_INEXISTENTE'
+  ) {
+    return 'NUMERO_NAO_EXISTE';
+  }
+
+  if (
+    s === 'REMOVER_DA_LISTA' ||
+    s === 'REMOVER_LISTA'
+  ) {
+    return 'REMOVER_DA_LISTA';
+  }
+
+  if (s === 'PENDENTE') return 'PENDENTE';
 
   return 'PENDENTE';
 }
@@ -338,15 +357,12 @@ function pickCanonicalValue(obj: Record<string, string>, headers: string[], fami
   if (!matchingHeaders.length) return '';
 
   const values = matchingHeaders
-    .map((realHeader) => String(obj[realHeader] ?? ''))
-    .map((v) => v.trim());
+    .map((realHeader) => String(obj[realHeader] ?? '').trim());
 
-  // prioridade para o ÚLTIMO preenchido
   for (let i = values.length - 1; i >= 0; i--) {
     if (values[i]) return values[i];
   }
 
-  // se todos vazios, devolve o último mesmo
   return values[values.length - 1] || '';
 }
 
