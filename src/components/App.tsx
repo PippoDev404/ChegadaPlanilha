@@ -5,6 +5,8 @@ type Status =
   | 'PENDENTE'
   | 'NAO_ATENDEU'
   | 'OUTRA_CIDADE'
+  | 'SO_MORA'
+  | 'SO_VOTA'
   | 'ATENDEU'
   | 'CAIXA_POSTAL'
   | 'RETORNO'
@@ -16,7 +18,7 @@ type PartePayload = {
   chave_parte?: string;
 };
 
-type OutraCidadeTipo = 'MORA_VOTA' | 'SO_MORA' | 'SO_VOTA' | 'NQ_RESPONDER';
+type OutraCidadeTipo = 'MORA_VOTA' | 'NQ_RESPONDER';
 
 type Row = {
   id: string;
@@ -75,6 +77,8 @@ const globalCss = `
   --blueLight: #38BDF8;
 
   --purple: #7C3AED;
+  --teal: #0F766E;
+  --pink: #BE185D;
 
   --shadow: 0 10px 30px rgba(0,0,0,.10);
   --radius: 15px;
@@ -152,6 +156,8 @@ function sanitizeStatus(raw: string): Status {
     s === 'PENDENTE' ||
     s === 'ATENDEU' ||
     s === 'OUTRA_CIDADE' ||
+    s === 'SO_MORA' ||
+    s === 'SO_VOTA' ||
     s === 'NAO_ATENDEU' ||
     s === 'CAIXA_POSTAL' ||
     s === 'RETORNO' ||
@@ -170,35 +176,21 @@ function sanitizeStatus(raw: string): Status {
 function buildOutraCidadeObs(tipo: OutraCidadeTipo, valor?: string) {
   const v = String(valor || '').trim();
 
-  if (tipo === 'SO_MORA') return 'SO_MORA';
-  if (tipo === 'SO_VOTA') return 'SO_VOTA';
   if (tipo === 'NQ_RESPONDER') return 'NQ_RESPONDER';
 
   return v || 'MORA_VOTA';
 }
 
-function outraCidadeTipoFromObs(obs: string): OutraCidadeTipo {
-  const t = String(obs || '').trim();
-
-  if (t === 'SO_MORA') return 'SO_MORA';
-  if (t === 'SO_VOTA') return 'SO_VOTA';
-  if (t === 'NQ_RESPONDER') return 'NQ_RESPONDER';
-
-  return 'MORA_VOTA';
-}
-
 function outraCidadeFromObs(obs: string) {
   const t = String(obs || '').trim();
 
-  if (t === 'SO_MORA' || t === 'SO_VOTA' || t === 'NQ_RESPONDER') return '';
+  if (t === 'NQ_RESPONDER') return '';
   return t;
 }
 
 function outraCidadeLabel(obs: string) {
   const t = String(obs || '').trim();
 
-  if (t === 'SO_MORA') return 'SÓ MORA NA CIDADE';
-  if (t === 'SO_VOTA') return 'SÓ VOTA NA CIDADE';
   if (t === 'NQ_RESPONDER') return 'MORA/VOTA EM OUTRA CIDADE • NQ RESPONDER';
 
   return t ? `MORA/VOTA EM OUTRA CIDADE • ${t}` : 'MORA/VOTA EM OUTRA CIDADE';
@@ -215,6 +207,11 @@ function obsToSave(status: Status, obs: string) {
   if (status === 'RETORNO') {
     const hhmm = retornoLabelFromObs(t) || t.replace(/^RETORNO\s*[-–—]?\s*/i, '').trim();
     return hhmm;
+  }
+
+  // SO_MORA e SO_VOTA agora são status próprios, então observação deve ficar vazia
+  if (status === 'SO_MORA' || status === 'SO_VOTA') {
+    return '';
   }
 
   return t;
@@ -281,14 +278,13 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
   let headers = splitLine(lines[0]).map((h) => h.replace(/^"|"$/g, '').trim());
 
   const hasDtAlteracao = headers.some((h) =>
-    ['dt.Alteração', 'dt.Alteracao', 'DT_ALTERACAO', 'ULTIMA_ALTERACAO'].includes(
+    ['DT.ALTERACAO', 'dt.Alteração', 'dt.Alteracao', 'DT_ALTERACAO', 'ULTIMA_ALTERACAO'].includes(
       String(h || '').trim()
     )
   );
 
-  // cria a coluna no CSV lógico, mesmo que ela não venha no arquivo
   if (!hasDtAlteracao) {
-    headers = [...headers, 'dt.Alteração'];
+    headers = [...headers, 'DT.ALTERACAO'];
   }
 
   const rows = lines.slice(1).map((ln) => {
@@ -299,9 +295,8 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
       obj[h] = (cols[idx] ?? '').replace(/^"|"$/g, '');
     });
 
-    // garante a coluna em toda linha
-    if (!('dt.Alteração' in obj)) {
-      obj['dt.Alteração'] = '';
+    if (!('DT.ALTERACAO' in obj) && !('dt.Alteração' in obj)) {
+      obj.DT.ALTERACAO = '';
     }
 
     return obj;
@@ -333,7 +328,7 @@ function csvToRows(csv: string): Row[] {
     const statusCsv = pickKey(r, ['STATUS', 'Status']) || 'PENDENTE';
     const obsCsv = pickKey(r, ['OBSERVACAO', 'OBSERVAÇÃO', 'Observacao', 'Observação']) || '';
     const dtAlteracaoCsv =
-      pickKey(r, ['dt.Alteração', 'dt.Alteracao', 'DT_ALTERACAO', 'ULTIMA_ALTERACAO']) || '';
+      pickKey(r, ['DT.ALTERACAO', 'dt.Alteração', 'dt.Alteracao', 'DT_ALTERACAO', 'ULTIMA_ALTERACAO']) || '';
 
     return {
       id: `row-${idx + 1}`,
@@ -369,6 +364,8 @@ function statusText(row: Row) {
   if (s === 'NAO_ATENDEU' || s === 'CAIXA_POSTAL') return 'NÃO ATENDEU/CAIXA POSTAL';
   if (s === 'NUMERO_NAO_EXISTE') return 'NÚMERO NÃO EXISTE';
   if (s === 'REMOVER_DA_LISTA') return 'REMOVER DA LISTA';
+  if (s === 'SO_MORA') return 'SÓ MORA NA CIDADE';
+  if (s === 'SO_VOTA') return 'SÓ VOTA NA CIDADE';
 
   if (s === 'OUTRA_CIDADE') {
     return outraCidadeLabel(row.OBSERVACAO);
@@ -388,6 +385,10 @@ function statusVars(s: Status) {
       return { bd: 'var(--success)', bg: 'rgba(22,163,74,.32)' };
     case 'OUTRA_CIDADE':
       return { bd: 'var(--orange)', bg: 'rgba(249,115,22,.34)' };
+    case 'SO_MORA':
+      return { bd: 'var(--teal)', bg: 'rgba(15,118,110,.28)' };
+    case 'SO_VOTA':
+      return { bd: 'var(--pink)', bg: 'rgba(190,24,93,.22)' };
     case 'RETORNO':
       return { bd: 'var(--blueDark)', bg: 'rgba(30,58,138,.30)' };
     case 'NUMERO_NAO_EXISTE':
@@ -409,6 +410,10 @@ function rowBg(status: Status) {
       return 'rgba(245,158,11,.28)';
     case 'OUTRA_CIDADE':
       return 'rgba(249,115,22,.28)';
+    case 'SO_MORA':
+      return 'rgba(15,118,110,.20)';
+    case 'SO_VOTA':
+      return 'rgba(190,24,93,.16)';
     case 'ATENDEU':
       return 'rgba(22,163,74,.26)';
     case 'RETORNO':
@@ -455,7 +460,7 @@ function ActionButton({
   onClick,
 }: {
   active: boolean;
-  kind: 'danger' | 'warning' | 'success' | 'blueDark' | 'blueLight' | 'orange' | 'purple';
+  kind: 'danger' | 'warning' | 'success' | 'blueDark' | 'blueLight' | 'orange' | 'purple' | 'teal' | 'pink';
   children: React.ReactNode;
   onClick: () => void;
 }) {
@@ -472,7 +477,11 @@ function ActionButton({
               ? { border: '2px solid rgba(56,189,248,.65)', background: 'rgba(56,189,248,.22)', color: 'var(--text)' }
               : kind === 'purple'
                 ? { border: '2px solid rgba(124,58,237,.65)', background: 'rgba(124,58,237,.22)', color: 'var(--text)' }
-                : { border: '2px solid rgba(22,163,74,.65)', background: 'rgba(22,163,74,.24)', color: 'var(--text)' };
+                : kind === 'teal'
+                  ? { border: '2px solid rgba(15,118,110,.65)', background: 'rgba(15,118,110,.18)', color: 'var(--text)' }
+                  : kind === 'pink'
+                    ? { border: '2px solid rgba(190,24,93,.65)', background: 'rgba(190,24,93,.16)', color: 'var(--text)' }
+                    : { border: '2px solid rgba(22,163,74,.65)', background: 'rgba(22,163,74,.24)', color: 'var(--text)' };
 
   return (
     <button
@@ -912,7 +921,6 @@ function RowActionsModal({
   const tf2 = safeTel(row.TF2);
 
   const isNaoAtendeuOuCaixa = row.STATUS === 'NAO_ATENDEU' || row.STATUS === 'CAIXA_POSTAL';
-  const outraTipo = row.STATUS === 'OUTRA_CIDADE' ? outraCidadeTipoFromObs(row.OBSERVACAO) : null;
 
   return (
     <div onClick={onClose} style={stylesModal.overlay}>
@@ -937,7 +945,7 @@ function RowActionsModal({
           </ActionButton>
 
           <ActionButton
-            active={row.STATUS === 'OUTRA_CIDADE' && (outraTipo === 'MORA_VOTA' || outraTipo === 'NQ_RESPONDER')}
+            active={row.STATUS === 'OUTRA_CIDADE'}
             kind="orange"
             onClick={() => {
               onOpenOutraCidade();
@@ -947,25 +955,25 @@ function RowActionsModal({
           </ActionButton>
 
           <ActionButton
-            active={row.STATUS === 'OUTRA_CIDADE' && outraTipo === 'SO_MORA'}
-            kind="orange"
+            active={row.STATUS === 'SO_MORA'}
+            kind="teal"
             onClick={() => {
               onSetSoMora();
               onClose();
             }}
           >
-            🟠 Só mora na cidade
+            🟦 Só mora na cidade
           </ActionButton>
 
           <ActionButton
-            active={row.STATUS === 'OUTRA_CIDADE' && outraTipo === 'SO_VOTA'}
-            kind="orange"
+            active={row.STATUS === 'SO_VOTA'}
+            kind="pink"
             onClick={() => {
               onSetSoVota();
               onClose();
             }}
           >
-            🟠 Só vota na cidade
+            🩷 Só vota na cidade
           </ActionButton>
 
           <ActionButton
@@ -1246,16 +1254,18 @@ function MiniAppTabela() {
 
     if (row.STATUS === 'RETORNO' && newStatus !== 'RETORNO') nextObs = '';
     if (row.STATUS === 'OUTRA_CIDADE' && newStatus !== 'OUTRA_CIDADE') nextObs = '';
+    if ((newStatus === 'SO_MORA' || newStatus === 'SO_VOTA') && nextObs) nextObs = '';
+    if ((row.STATUS === 'SO_MORA' || row.STATUS === 'SO_VOTA') && newStatus !== row.STATUS) nextObs = '';
 
     applyRowChange(row, newStatus, nextObs);
   }
 
   function setSoMoraForRow(row: Row) {
-    applyRowChange(row, 'OUTRA_CIDADE', buildOutraCidadeObs('SO_MORA'));
+    applyRowChange(row, 'SO_MORA', '');
   }
 
   function setSoVotaForRow(row: Row) {
-    applyRowChange(row, 'OUTRA_CIDADE', buildOutraCidadeObs('SO_VOTA'));
+    applyRowChange(row, 'SO_VOTA', '');
   }
 
   function openRowActions(row: Row) {
@@ -1348,7 +1358,7 @@ function MiniAppTabela() {
           LINE: Number(lineStr),
           STATUS: status,
           OBSERVACAO: obsClean,
-          'dt.Alteração': v.DT_ALTERACAO,
+          DT_ALTERACAO: v.DT_ALTERACAO,
           ts: new Date().toISOString(),
         };
       });
@@ -1503,7 +1513,9 @@ function MiniAppTabela() {
                 <option value="TODOS">Status: Todos</option>
                 <option value="PENDENTES">Status: Pendentes</option>
                 <option value="ATENDEU">Status: Atendeu</option>
-                <option value="OUTRA_CIDADE">Status: Outra cidade</option>
+                <option value="OUTRA_CIDADE">Status: Mora/Vota em outra cidade</option>
+                <option value="SO_MORA">Status: Só mora na cidade</option>
+                <option value="SO_VOTA">Status: Só vota na cidade</option>
                 <option value="NAO_ATENDEU">Status: Não atendeu/caixa postal</option>
                 <option value="NUMERO_NAO_EXISTE">Status: Número não existe</option>
                 <option value="RETORNO">Status: Retorno</option>
@@ -1591,17 +1603,21 @@ function MiniAppTabela() {
                     const selectedBg =
                       r.STATUS === 'OUTRA_CIDADE'
                         ? 'rgba(249,115,22,.42)'
-                        : r.STATUS === 'RETORNO'
-                          ? 'rgba(30,58,138,.36)'
-                          : r.STATUS === 'ATENDEU'
-                            ? 'rgba(22,163,74,.34)'
-                            : r.STATUS === 'NUMERO_NAO_EXISTE'
-                              ? 'rgba(239,68,68,.34)'
-                              : r.STATUS === 'NAO_ATENDEU' || r.STATUS === 'CAIXA_POSTAL'
-                                ? 'rgba(245,158,11,.40)'
-                                : r.STATUS === 'REMOVER_DA_LISTA'
-                                  ? 'rgba(124,58,237,.30)'
-                                  : 'rgba(0,0,0,.08)';
+                        : r.STATUS === 'SO_MORA'
+                          ? 'rgba(15,118,110,.34)'
+                          : r.STATUS === 'SO_VOTA'
+                            ? 'rgba(190,24,93,.28)'
+                            : r.STATUS === 'RETORNO'
+                              ? 'rgba(30,58,138,.36)'
+                              : r.STATUS === 'ATENDEU'
+                                ? 'rgba(22,163,74,.34)'
+                                : r.STATUS === 'NUMERO_NAO_EXISTE'
+                                  ? 'rgba(239,68,68,.34)'
+                                  : r.STATUS === 'NAO_ATENDEU' || r.STATUS === 'CAIXA_POSTAL'
+                                    ? 'rgba(245,158,11,.40)'
+                                    : r.STATUS === 'REMOVER_DA_LISTA'
+                                      ? 'rgba(124,58,237,.30)'
+                                      : 'rgba(0,0,0,.08)';
 
                     return (
                       <tr
