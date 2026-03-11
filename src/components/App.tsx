@@ -29,10 +29,11 @@ type Row = {
   TF2: string;
 
   STATUS: Status;
-  OBSERVACAO: string; // RETORNO - HH:MM | OUTRA_CIDADE - CIDADE/ESTADO | livre
+  OBSERVACAO: string; // RETORNO - HH:MM | OUTRA_CIDADE - tipo/cidade | livre
 };
 
 type StatusFilter = 'TODOS' | 'PENDENTES' | Status;
+type OutraCidadeMode = 'MORA_VOTA' | 'SO_MORA' | 'SO_VOTA';
 
 const PAGE_SIZE = 20;
 
@@ -114,13 +115,64 @@ function safeTel(v: string) {
     .replace(/[^\d+]/g, '');
 }
 
-// ✅ Para salvar no backend sem prefixo
+// =========================
+// OBS / TIPO OUTRA CIDADE
+// =========================
+function buildOutraCidadeObs(mode: OutraCidadeMode, cityOrFlag: string) {
+  const v = String(cityOrFlag || '').trim();
+
+  if (v === 'NQ_RESPONDER') return `${mode}|NQ_RESPONDER`;
+  return `${mode}|${v}`;
+}
+
+function parseOutraCidadeObs(obs: string): { mode: OutraCidadeMode; value: string } {
+  const t = String(obs || '').trim();
+
+  if (!t) return { mode: 'MORA_VOTA', value: '' };
+
+  if (t.includes('|')) {
+    const [rawMode, ...rest] = t.split('|');
+    const mode = (rawMode || '').trim().toUpperCase();
+
+    if (mode === 'SO_MORA') return { mode: 'SO_MORA', value: rest.join('|').trim() };
+    if (mode === 'SO_VOTA') return { mode: 'SO_VOTA', value: rest.join('|').trim() };
+    return { mode: 'MORA_VOTA', value: rest.join('|').trim() };
+  }
+
+  return { mode: 'MORA_VOTA', value: t };
+}
+
+function outraCidadeFromObs(obs: string) {
+  const parsed = parseOutraCidadeObs(obs);
+  return parsed.value;
+}
+
+function outraCidadeModeFromObs(obs: string): OutraCidadeMode {
+  return parseOutraCidadeObs(obs).mode;
+}
+
+function outraCidadeHumanLabel(obs: string) {
+  const { mode, value } = parseOutraCidadeObs(obs);
+
+  const baseLabel =
+    mode === 'SO_MORA'
+      ? 'SÓ MORA NA CIDADE'
+      : mode === 'SO_VOTA'
+        ? 'SÓ VOTA NA CIDADE'
+        : 'MORA/VOTA EM OUTRA CIDADE';
+
+  if (!value) return baseLabel;
+  if (value === 'NQ_RESPONDER') return `${baseLabel} • NQ RESPONDER`;
+  return `${baseLabel} • ${value}`;
+}
+
+// ✅ Para salvar no backend sem prefixo extra de status,
+// mas preservando o subtipo do OUTRA_CIDADE
 function obsToSave(status: Status, obs: string) {
   const t = String(obs || '').trim();
 
   if (status === 'OUTRA_CIDADE') {
-    const city = outraCidadeFromObs(t) || t.replace(/^OUTRA\s*CIDADE\s*[-–—]?\s*/i, '').trim();
-    return city;
+    return t;
   }
 
   if (status === 'RETORNO') {
@@ -282,15 +334,6 @@ function retornoLabelFromObs(obs: string) {
   return m?.[1] || '';
 }
 
-function outraCidadeFromObs(obs: string) {
-  const t = String(obs || '').trim();
-
-  if (t && !/^OUTRA_CIDADE/i.test(t)) return t;
-
-  const m = t.match(/OUTRA_CIDADE\s*[-–—]?\s*(.*)$/i);
-  return (m?.[1] || '').trim();
-}
-
 // status pill
 function statusText(row: Row) {
   const s = row.STATUS;
@@ -301,8 +344,7 @@ function statusText(row: Row) {
   if (s === 'REMOVER_DA_LISTA') return 'REMOVER DA LISTA';
 
   if (s === 'OUTRA_CIDADE') {
-    const city = outraCidadeFromObs(row.OBSERVACAO);
-    return city ? `OUTRA CIDADE • ${city}` : 'OUTRA CIDADE';
+    return outraCidadeHumanLabel(row.OBSERVACAO);
   }
 
   if (s === 'RETORNO') {
@@ -575,13 +617,15 @@ function cityLabel(nome: string, estadoNome: string) {
 function OutraCidadeModal({
   open,
   initialValue,
+  mode,
   onCancel,
   onConfirm,
 }: {
   open: boolean;
   initialValue: string;
+  mode: OutraCidadeMode;
   onCancel: () => void;
-  onConfirm: (city: string) => void;
+  onConfirm: (value: string) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [loadErr, setLoadErr] = useState('');
@@ -638,10 +682,8 @@ function OutraCidadeModal({
 
     if (!all.length) return [];
 
-    // Sem busca: mostra primeiras cidades em ordem
     if (!q) return all.slice(0, 50);
 
-    // 1) prioridade máxima: cidade começa com o texto digitado
     const startsWithNome = all.filter((c) =>
       String(c.nome || '').trim().toLowerCase().startsWith(q)
     );
@@ -652,18 +694,14 @@ function OutraCidadeModal({
           const aNome = a.nome.toLowerCase();
           const bNome = b.nome.toLowerCase();
 
-          // cidade com nome EXATO vem primeiro
           if (aNome === q && bNome !== q) return -1;
           if (bNome === q && aNome !== q) return 1;
 
-          // depois ordem alfabética normal do label
           return a.label.localeCompare(b.label, 'pt-BR');
         })
         .slice(0, 50);
     }
 
-    // 2) fallback: busca por começo de qualquer palavra do nome da cidade
-    // Ex.: "Paulo" encontra "São Paulo", mas ainda sem usar estado
     const startsWithWordInNome = all.filter((c) =>
       String(c.nome || '')
         .trim()
@@ -678,9 +716,15 @@ function OutraCidadeModal({
         .slice(0, 50);
     }
 
-    // 3) se não achou nada, não mistura com estado
     return [];
   }, [all, query]);
+
+  const modalTitle =
+    mode === 'SO_MORA'
+      ? '🟠 Só mora na cidade'
+      : mode === 'SO_VOTA'
+        ? '🟠 Só vota na cidade'
+        : '🟠 Mora/Vota em outra cidade';
 
   if (!open) return null;
 
@@ -688,8 +732,8 @@ function OutraCidadeModal({
     <div onClick={onCancel} style={stylesModal.overlay}>
       <div onClick={(e) => e.stopPropagation()} style={{ ...stylesModal.box, width: 'min(560px, 96vw)' }}>
         <div style={stylesModal.header}>
-          <div style={stylesModal.title}>🟠 Mora/Vota em outra cidade</div>
-          <div style={stylesModal.sub}>Digite o começo do nome da cidade</div>
+          <div style={stylesModal.title}>{modalTitle}</div>
+          <div style={stylesModal.sub}>Digite o começo do nome da cidade ou escolha NQ Responder</div>
         </div>
 
         <div style={{ padding: 12 }}>
@@ -719,6 +763,23 @@ function OutraCidadeModal({
             disabled={loading || !!loadErr}
             autoFocus
           />
+
+          <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setQuery('NQ_RESPONDER');
+                setSelected('NQ_RESPONDER');
+              }}
+              style={{
+                ...styles.btn,
+                background: selected === 'NQ_RESPONDER' ? 'rgba(249,115,22,.16)' : 'var(--surface)',
+                border: '1px solid var(--border)',
+              }}
+            >
+              NQ Responder
+            </button>
+          </div>
 
           <div
             style={{
@@ -813,7 +874,7 @@ function RowActionsModal({
   onCall: (which: 'TF1' | 'TF2') => void;
   onCopy: (label: string, value: string) => void;
   onOpenRetorno: () => void;
-  onOpenOutraCidade: () => void;
+  onOpenOutraCidade: (mode: OutraCidadeMode) => void;
 }) {
   if (!open || !row) return null;
 
@@ -821,10 +882,11 @@ function RowActionsModal({
   const tf2 = safeTel(row.TF2);
 
   const isNaoAtendeuOuCaixa = row.STATUS === 'NAO_ATENDEU' || row.STATUS === 'CAIXA_POSTAL';
+  const currentOutraCidadeMode = row.STATUS === 'OUTRA_CIDADE' ? outraCidadeModeFromObs(row.OBSERVACAO) : null;
 
   return (
     <div onClick={onClose} style={stylesModal.overlay}>
-      <div onClick={(e) => e.stopPropagation()} style={{ ...stylesModal.box, width: 'min(620px, 96vw)' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ ...stylesModal.box, width: 'min(760px, 96vw)' }}>
         <div style={stylesModal.header}>
           <div style={stylesModal.title}>Ações • IDP {row.IDP}</div>
           <div style={stylesModal.sub}>
@@ -845,18 +907,33 @@ function RowActionsModal({
           </ActionButton>
 
           <ActionButton
-            active={row.STATUS === 'OUTRA_CIDADE'}
+            active={row.STATUS === 'OUTRA_CIDADE' && currentOutraCidadeMode === 'MORA_VOTA'}
             kind="orange"
             onClick={() => {
-              if (row.STATUS === 'OUTRA_CIDADE') {
-                onToggleStatus('OUTRA_CIDADE');
-                onClose();
-                return;
-              }
-              onOpenOutraCidade();
+              onOpenOutraCidade('MORA_VOTA');
             }}
           >
             🟠 Mora/Vota em outra cidade
+          </ActionButton>
+
+          <ActionButton
+            active={row.STATUS === 'OUTRA_CIDADE' && currentOutraCidadeMode === 'SO_MORA'}
+            kind="orange"
+            onClick={() => {
+              onOpenOutraCidade('SO_MORA');
+            }}
+          >
+            🟠 Só mora na cidade
+          </ActionButton>
+
+          <ActionButton
+            active={row.STATUS === 'OUTRA_CIDADE' && currentOutraCidadeMode === 'SO_VOTA'}
+            kind="orange"
+            onClick={() => {
+              onOpenOutraCidade('SO_VOTA');
+            }}
+          >
+            🟠 Só vota na cidade
           </ActionButton>
 
           <ActionButton
@@ -969,6 +1046,7 @@ function MiniAppTabela() {
 
   const [outraCidadeModalOpen, setOutraCidadeModalOpen] = useState(false);
   const [outraCidadeInitial, setOutraCidadeInitial] = useState<string>('');
+  const [outraCidadeMode, setOutraCidadeMode] = useState<OutraCidadeMode>('MORA_VOTA');
 
   useEffect(() => {
     const entregaId = getEntregaIdOnly();
@@ -1157,27 +1235,28 @@ function MiniAppTabela() {
     setActionsOpen(false);
   }
 
-  function openOutraCidadePicker(row: Row) {
-    const current = outraCidadeFromObs(row.OBSERVACAO) || '';
-    setOutraCidadeInitial(current);
+  function openOutraCidadePicker(row: Row, mode: OutraCidadeMode) {
+    const currentValue = row.STATUS === 'OUTRA_CIDADE' ? outraCidadeFromObs(row.OBSERVACAO) : '';
+    setOutraCidadeInitial(currentValue === 'NQ_RESPONDER' ? '' : currentValue);
+    setOutraCidadeMode(mode);
     setOutraCidadeModalOpen(true);
   }
 
-  function confirmOutraCidade(city: string) {
+  function confirmOutraCidade(cityOrFlag: string) {
     const row = activeRow;
     if (!row) {
       setOutraCidadeModalOpen(false);
       return;
     }
 
-    const cleaned = String(city || '').trim();
+    const cleaned = String(cityOrFlag || '').trim();
 
     if (!cleaned) {
-      window.alert('Selecione uma cidade.');
+      window.alert('Selecione uma cidade ou NQ Responder.');
       return;
     }
 
-    const obs = cleaned;
+    const obs = buildOutraCidadeObs(outraCidadeMode, cleaned);
 
     updateRow(row.id, { STATUS: 'OUTRA_CIDADE', OBSERVACAO: obs });
     markDirty(row, { STATUS: 'OUTRA_CIDADE', OBSERVACAO: obs });
@@ -1214,6 +1293,8 @@ function MiniAppTabela() {
     if (!entries.length) return;
 
     const t = setTimeout(async () => {
+      const nowIso = new Date().toISOString();
+
       const changes = entries.map(([lineStr, v]) => {
         const status = v.STATUS;
         const obsClean = obsToSave(status, v.OBSERVACAO || '');
@@ -1222,7 +1303,8 @@ function MiniAppTabela() {
           LINE: Number(lineStr),
           STATUS: status,
           OBSERVACAO: obsClean,
-          ts: new Date().toISOString(),
+          ultima_alteracao_em: nowIso,
+          ts: nowIso,
         };
       });
 
@@ -1293,7 +1375,7 @@ function MiniAppTabela() {
         onCall={(which) => activeRow && callPhoneForRow(activeRow, which)}
         onCopy={copyToClipboard}
         onOpenRetorno={() => activeRow && openRetornoPicker(activeRow)}
-        onOpenOutraCidade={() => activeRow && openOutraCidadePicker(activeRow)}
+        onOpenOutraCidade={(mode) => activeRow && openOutraCidadePicker(activeRow, mode)}
       />
 
       <RetornoModal open={retornoModalOpen} initialValue={retornoInitial} onCancel={() => setRetornoModalOpen(false)} onConfirm={confirmRetorno} />
@@ -1301,6 +1383,7 @@ function MiniAppTabela() {
       <OutraCidadeModal
         open={outraCidadeModalOpen}
         initialValue={outraCidadeInitial}
+        mode={outraCidadeMode}
         onCancel={() => setOutraCidadeModalOpen(false)}
         onConfirm={confirmOutraCidade}
       />
@@ -1374,7 +1457,7 @@ function MiniAppTabela() {
                 <option value="TODOS">Status: Todos</option>
                 <option value="PENDENTES">Status: Pendentes</option>
                 <option value="ATENDEU">Status: Atendeu</option>
-                <option value="OUTRA_CIDADE">Status: Mora/Vota em outra cidade</option>
+                <option value="OUTRA_CIDADE">Status: Mora/Vota/Só mora/Só vota</option>
                 <option value="NAO_ATENDEU">Status: Não atendeu/caixa postal</option>
                 <option value="NUMERO_NAO_EXISTE">Status: Número não existe</option>
                 <option value="RETORNO">Status: Retorno</option>
