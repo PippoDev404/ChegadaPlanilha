@@ -5,13 +5,13 @@ type Status =
   | 'PENDENTE'
   | 'NAO_ATENDEU'
   | 'OUTRA_CIDADE'
-  | 'SO_MORA'
-  | 'SO_VOTA'
-  | 'ATENDEU'
+  | 'NAO_PODE_FAZER_PESQUISA'
+  | 'PESQUISA_FEITA'
   | 'CAIXA_POSTAL'
   | 'RETORNO'
   | 'NUMERO_NAO_EXISTE'
-  | 'REMOVER_DA_LISTA';
+  | 'REMOVER_DA_LISTA'
+  | 'RECUSA';
 
 type PartePayload = {
   csv?: string;
@@ -35,7 +35,6 @@ type Row = {
   STATUS: Status;
   OBSERVACAO: string;
 
-  // coluna do CSV, mas não visível na tabela
   DT_ALTERACAO: string;
 };
 
@@ -46,7 +45,6 @@ const PAGE_SIZE = 20;
 const API_GET_ENTREGA = 'https://n8n.srv962474.hstgr.cloud/webhook/entregas';
 const API_SAVE_PARTE = 'https://n8n.srv962474.hstgr.cloud/webhook/parte/salvar';
 
-// IBGE (lista de municípios)
 const IBGE_MUNICIPIOS_API = 'https://servicodados.ibge.gov.br/api/v1/localidades/municipios';
 
 // =========================
@@ -191,7 +189,7 @@ function sanitizeStatus(raw: string): Status {
   if (s === 'LIGAR_MAIS_TARDE') return 'RETORNO';
   if (s.startsWith('RETORNO')) return 'RETORNO';
 
-  if (s === 'ATENDEU') return 'ATENDEU';
+  if (s === 'ATENDEU' || s === 'PESQUISA_FEITA') return 'PESQUISA_FEITA';
 
   if (
     s === 'NAO_ATENDEU' ||
@@ -202,8 +200,14 @@ function sanitizeStatus(raw: string): Status {
   }
 
   if (s === 'OUTRA_CIDADE') return 'OUTRA_CIDADE';
-  if (s === 'SO_MORA') return 'SO_MORA';
-  if (s === 'SO_VOTA') return 'SO_VOTA';
+
+  if (
+    s === 'SO_MORA' ||
+    s === 'SO_VOTA' ||
+    s === 'NAO_PODE_FAZER_PESQUISA'
+  ) {
+    return 'NAO_PODE_FAZER_PESQUISA';
+  }
 
   if (
     s === 'NUMERO_NAO_EXISTE' ||
@@ -218,6 +222,8 @@ function sanitizeStatus(raw: string): Status {
   ) {
     return 'REMOVER_DA_LISTA';
   }
+
+  if (s === 'RECUSA') return 'RECUSA';
 
   if (s === 'PENDENTE') return 'PENDENTE';
 
@@ -250,7 +256,6 @@ function outraCidadeLabel(obs: string) {
   return t ? `MORA/VOTA EM OUTRA CIDADE • ${t}` : 'MORA/VOTA EM OUTRA CIDADE';
 }
 
-// salva o valor puro no backend
 function obsToSave(status: Status, obs: string) {
   const t = String(obs || '').trim();
 
@@ -263,14 +268,13 @@ function obsToSave(status: Status, obs: string) {
     return hhmm;
   }
 
-  if (status === 'SO_MORA' || status === 'SO_VOTA') {
+  if (status === 'NAO_PODE_FAZER_PESQUISA') {
     return '';
   }
 
   return t;
 }
 
-// CSV parser simples (já suporta aspas)
 function parseCsv(csv: string): { headers: string[]; rows: Record<string, string>[] } {
   const text = String(csv || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   if (!text) return { headers: [], rows: [] };
@@ -344,13 +348,6 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
   return { headers, rows };
 }
 
-/**
- * PEGA O ÚLTIMO VALOR PREENCHIDO ENTRE TODAS AS COLUNAS
- * DA MESMA FAMÍLIA:
- * - STATUS / STATUS_1 / STATUS_2
- * - OBSERVACAO / OBSERVACAO_1
- * - DT_ALTERACAO / DT_ALTERACAO_1
- */
 function pickCanonicalValue(obj: Record<string, string>, headers: string[], familyKey: string) {
   const matchingHeaders = headers.filter((h) => canonicalHeaderKey(h) === familyKey);
 
@@ -403,7 +400,6 @@ function csvToRows(csv: string): Row[] {
   });
 }
 
-// OBS helpers
 function retornoLabelFromObs(obs: string) {
   const t = String(obs || '').trim();
 
@@ -413,16 +409,14 @@ function retornoLabelFromObs(obs: string) {
   return m?.[1] || '';
 }
 
-// status pill
 function statusText(row: Row) {
   const s = row.STATUS;
 
-  if (s === 'ATENDEU') return 'ATENDEU';
+  if (s === 'PESQUISA_FEITA') return 'PESQUISA FEITA';
   if (s === 'NAO_ATENDEU' || s === 'CAIXA_POSTAL') return 'NÃO ATENDEU/CAIXA POSTAL';
-  if (s === 'NUMERO_NAO_EXISTE') return 'NÚMERO NÃO EXISTE';
-  if (s === 'REMOVER_DA_LISTA') return 'REMOVER DA LISTA';
-  if (s === 'SO_MORA') return 'SÓ MORA NA CIDADE';
-  if (s === 'SO_VOTA') return 'SÓ VOTA NA CIDADE';
+  if (s === 'NUMERO_NAO_EXISTE') return 'Nº NÃO EXISTE';
+  if (s === 'RECUSA') return 'RECUSA';
+  if (s === 'NAO_PODE_FAZER_PESQUISA') return 'NÃO PODE FAZER A PESQUISA';
 
   if (s === 'OUTRA_CIDADE') {
     return outraCidadeLabel(row.OBSERVACAO);
@@ -433,23 +427,25 @@ function statusText(row: Row) {
     return hhmm ? `RETORNO • ${hhmm}` : 'RETORNO';
   }
 
+  if (s === 'REMOVER_DA_LISTA') return 'REMOVER DA LISTA';
+
   return 'PENDENTE';
 }
 
 function statusVars(s: Status) {
   switch (s) {
-    case 'ATENDEU':
+    case 'PESQUISA_FEITA':
       return { bd: 'var(--success)', bg: 'rgba(22,163,74,.32)' };
     case 'OUTRA_CIDADE':
       return { bd: 'var(--orange)', bg: 'rgba(249,115,22,.34)' };
-    case 'SO_MORA':
+    case 'NAO_PODE_FAZER_PESQUISA':
       return { bd: 'var(--teal)', bg: 'rgba(15,118,110,.28)' };
-    case 'SO_VOTA':
-      return { bd: 'var(--pink)', bg: 'rgba(190,24,93,.22)' };
     case 'RETORNO':
       return { bd: 'var(--blueDark)', bg: 'rgba(30,58,138,.30)' };
     case 'NUMERO_NAO_EXISTE':
       return { bd: 'var(--danger)', bg: 'rgba(239,68,68,.34)' };
+    case 'RECUSA':
+      return { bd: 'var(--pink)', bg: 'rgba(190,24,93,.22)' };
     case 'NAO_ATENDEU':
     case 'CAIXA_POSTAL':
       return { bd: 'var(--warning)', bg: 'rgba(245,158,11,.34)' };
@@ -467,16 +463,16 @@ function rowBg(status: Status) {
       return 'rgba(245,158,11,.28)';
     case 'OUTRA_CIDADE':
       return 'rgba(249,115,22,.28)';
-    case 'SO_MORA':
+    case 'NAO_PODE_FAZER_PESQUISA':
       return 'rgba(15,118,110,.20)';
-    case 'SO_VOTA':
-      return 'rgba(190,24,93,.16)';
-    case 'ATENDEU':
+    case 'PESQUISA_FEITA':
       return 'rgba(22,163,74,.26)';
     case 'RETORNO':
       return 'rgba(30,58,138,.24)';
     case 'NUMERO_NAO_EXISTE':
       return 'rgba(239,68,68,.24)';
+    case 'RECUSA':
+      return 'rgba(190,24,93,.18)';
     case 'REMOVER_DA_LISTA':
       return 'rgba(124,58,237,.20)';
     default:
@@ -958,8 +954,7 @@ function RowActionsModal({
   onCopy,
   onOpenRetorno,
   onOpenOutraCidade,
-  onSetSoMora,
-  onSetSoVota,
+  onSetNaoPodeFazerPesquisa,
 }: {
   open: boolean;
   row: Row | null;
@@ -969,8 +964,7 @@ function RowActionsModal({
   onCopy: (label: string, value: string) => void;
   onOpenRetorno: () => void;
   onOpenOutraCidade: () => void;
-  onSetSoMora: () => void;
-  onSetSoVota: () => void;
+  onSetNaoPodeFazerPesquisa: () => void;
 }) {
   if (!open || !row) return null;
 
@@ -991,6 +985,17 @@ function RowActionsModal({
 
         <div style={{ padding: 12, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <ActionButton
+            active={row.STATUS === 'PESQUISA_FEITA'}
+            kind="success"
+            onClick={() => {
+              onToggleStatus('PESQUISA_FEITA');
+              onClose();
+            }}
+          >
+            Pesquisa Feita
+          </ActionButton>
+
+          <ActionButton
             active={isNaoAtendeuOuCaixa}
             kind="warning"
             onClick={() => {
@@ -998,39 +1003,7 @@ function RowActionsModal({
               onClose();
             }}
           >
-             Não atendeu/caixa postal
-          </ActionButton>
-
-          <ActionButton
-            active={row.STATUS === 'OUTRA_CIDADE'}
-            kind="orange"
-            onClick={() => {
-              onOpenOutraCidade();
-            }}
-          >
-             Mora/Vota em outra cidade
-          </ActionButton>
-
-          <ActionButton
-            active={row.STATUS === 'SO_MORA'}
-            kind="teal"
-            onClick={() => {
-              onSetSoMora();
-              onClose();
-            }}
-          >
-             Só mora na cidade
-          </ActionButton>
-
-          <ActionButton
-            active={row.STATUS === 'SO_VOTA'}
-            kind="pink"
-            onClick={() => {
-              onSetSoVota();
-              onClose();
-            }}
-          >
-             Só vota na cidade
+            Não atendeu/caixa postal
           </ActionButton>
 
           <ActionButton
@@ -1041,7 +1014,18 @@ function RowActionsModal({
               onClose();
             }}
           >
-             Número não existe
+            Nº Não Existe
+          </ActionButton>
+
+          <ActionButton
+            active={row.STATUS === 'RECUSA'}
+            kind="pink"
+            onClick={() => {
+              onToggleStatus('RECUSA');
+              onClose();
+            }}
+          >
+            Recusa
           </ActionButton>
 
           <ActionButton
@@ -1056,18 +1040,28 @@ function RowActionsModal({
               onOpenRetorno();
             }}
           >
-             Retorno
+            Retorno
           </ActionButton>
 
           <ActionButton
-            active={row.STATUS === 'ATENDEU'}
-            kind="success"
+            active={row.STATUS === 'OUTRA_CIDADE'}
+            kind="orange"
             onClick={() => {
-              onToggleStatus('ATENDEU');
+              onOpenOutraCidade();
+            }}
+          >
+            Mora/Vota em outra cidade
+          </ActionButton>
+
+          <ActionButton
+            active={row.STATUS === 'NAO_PODE_FAZER_PESQUISA'}
+            kind="teal"
+            onClick={() => {
+              onSetNaoPodeFazerPesquisa();
               onClose();
             }}
           >
-             Atendeu
+            Não pode fazer a pesquisa
           </ActionButton>
 
           <ActionButton
@@ -1078,7 +1072,7 @@ function RowActionsModal({
               onClose();
             }}
           >
-             Remover da lista
+            Remover da lista
           </ActionButton>
         </div>
 
@@ -1311,18 +1305,14 @@ function MiniAppTabela() {
 
     if (row.STATUS === 'RETORNO' && newStatus !== 'RETORNO') nextObs = '';
     if (row.STATUS === 'OUTRA_CIDADE' && newStatus !== 'OUTRA_CIDADE') nextObs = '';
-    if ((newStatus === 'SO_MORA' || newStatus === 'SO_VOTA') && nextObs) nextObs = '';
-    if ((row.STATUS === 'SO_MORA' || row.STATUS === 'SO_VOTA') && newStatus !== row.STATUS) nextObs = '';
+    if (newStatus === 'NAO_PODE_FAZER_PESQUISA' && nextObs) nextObs = '';
+    if (row.STATUS === 'NAO_PODE_FAZER_PESQUISA' && newStatus !== row.STATUS) nextObs = '';
 
     applyRowChange(row, newStatus, nextObs);
   }
 
-  function setSoMoraForRow(row: Row) {
-    applyRowChange(row, 'SO_MORA', '');
-  }
-
-  function setSoVotaForRow(row: Row) {
-    applyRowChange(row, 'SO_VOTA', '');
+  function setNaoPodeFazerPesquisaForRow(row: Row) {
+    applyRowChange(row, 'NAO_PODE_FAZER_PESQUISA', '');
   }
 
   function openRowActions(row: Row) {
@@ -1488,8 +1478,7 @@ function MiniAppTabela() {
         onCopy={copyToClipboard}
         onOpenRetorno={() => activeRow && openRetornoPicker(activeRow)}
         onOpenOutraCidade={() => activeRow && openOutraCidadePicker(activeRow)}
-        onSetSoMora={() => activeRow && setSoMoraForRow(activeRow)}
-        onSetSoVota={() => activeRow && setSoVotaForRow(activeRow)}
+        onSetNaoPodeFazerPesquisa={() => activeRow && setNaoPodeFazerPesquisaForRow(activeRow)}
       />
 
       <RetornoModal open={retornoModalOpen} initialValue={retornoInitial} onCancel={() => setRetornoModalOpen(false)} onConfirm={confirmRetorno} />
@@ -1569,13 +1558,13 @@ function MiniAppTabela() {
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} style={styles.select}>
                 <option value="TODOS">Status: Todos</option>
                 <option value="PENDENTES">Status: Pendentes</option>
-                <option value="ATENDEU">Status: Atendeu</option>
-                <option value="OUTRA_CIDADE">Status: Mora/Vota em outra cidade</option>
-                <option value="SO_MORA">Status: Só mora na cidade</option>
-                <option value="SO_VOTA">Status: Só vota na cidade</option>
+                <option value="PESQUISA_FEITA">Status: Pesquisa Feita</option>
                 <option value="NAO_ATENDEU">Status: Não atendeu/caixa postal</option>
-                <option value="NUMERO_NAO_EXISTE">Status: Número não existe</option>
+                <option value="NUMERO_NAO_EXISTE">Status: Nº Não Existe</option>
+                <option value="RECUSA">Status: Recusa</option>
                 <option value="RETORNO">Status: Retorno</option>
+                <option value="OUTRA_CIDADE">Status: Mora/Vota em outra cidade</option>
+                <option value="NAO_PODE_FAZER_PESQUISA">Status: Não pode fazer a pesquisa</option>
                 <option value="REMOVER_DA_LISTA">Status: Remover da lista</option>
               </select>
 
@@ -1660,16 +1649,16 @@ function MiniAppTabela() {
                     const selectedBg =
                       r.STATUS === 'OUTRA_CIDADE'
                         ? 'rgba(249,115,22,.42)'
-                        : r.STATUS === 'SO_MORA'
+                        : r.STATUS === 'NAO_PODE_FAZER_PESQUISA'
                           ? 'rgba(15,118,110,.34)'
-                          : r.STATUS === 'SO_VOTA'
-                            ? 'rgba(190,24,93,.28)'
-                            : r.STATUS === 'RETORNO'
-                              ? 'rgba(30,58,138,.36)'
-                              : r.STATUS === 'ATENDEU'
-                                ? 'rgba(22,163,74,.34)'
-                                : r.STATUS === 'NUMERO_NAO_EXISTE'
-                                  ? 'rgba(239,68,68,.34)'
+                          : r.STATUS === 'RETORNO'
+                            ? 'rgba(30,58,138,.36)'
+                            : r.STATUS === 'PESQUISA_FEITA'
+                              ? 'rgba(22,163,74,.34)'
+                              : r.STATUS === 'NUMERO_NAO_EXISTE'
+                                ? 'rgba(239,68,68,.34)'
+                                : r.STATUS === 'RECUSA'
+                                  ? 'rgba(190,24,93,.28)'
                                   : r.STATUS === 'NAO_ATENDEU' || r.STATUS === 'CAIXA_POSTAL'
                                     ? 'rgba(245,158,11,.40)'
                                     : r.STATUS === 'REMOVER_DA_LISTA'
