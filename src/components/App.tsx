@@ -38,12 +38,19 @@ type Row = {
   DT_ALTERACAO: string;
 };
 
+type DirtyRow = {
+  STATUS: Status;
+  OBSERVACAO: string;
+  DT_ALTERACAO: string;
+  UPDATED_AT_MS: number;
+};
+
 type StatusFilter = 'TODOS' | 'PENDENTES' | Status;
 
 const PAGE_SIZE = 20;
 
 const API_GET_ENTREGA = 'https://n8n.srv962474.hstgr.cloud/webhook/entregas';
-const API_SAVE_PARTE = 'https://n8n.srv962474.hstgr.cloud/webhook/parte/salvar';
+const API_SAVE_PARTE = 'https://n8n.srv962474.hstgr.cloud/webhook-test/parte/salvar';
 
 const IBGE_MUNICIPIOS_API = 'https://servicodados.ibge.gov.br/api/v1/localidades/municipios';
 
@@ -128,7 +135,7 @@ function telToDial(v: string) {
   return `0${digits}`;
 }
 
-function nowLocalStamp() {
+function nowLocalStampPreciso() {
   const d = new Date();
   const dd = String(d.getDate()).padStart(2, '0');
   const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -136,7 +143,8 @@ function nowLocalStamp() {
   const hh = String(d.getHours()).padStart(2, '0');
   const mi = String(d.getMinutes()).padStart(2, '0');
   const ss = String(d.getSeconds()).padStart(2, '0');
-  return `${dd}/${mm}/${yyyy} ${hh}:${mi}:${ss}`;
+  const ms = String(d.getMilliseconds()).padStart(3, '0');
+  return `${dd}/${mm}/${yyyy} ${hh}:${mi}:${ss}.${ms}`;
 }
 
 function normalizeHeader(h: string) {
@@ -676,7 +684,7 @@ function RetornoModal({
 }
 
 // =========================
-// MODAL: Outra cidade (AUTOCOMPLETE)
+// MODAL: Outra cidade
 // =========================
 type IbgeMunicipio = {
   id: number;
@@ -1125,7 +1133,7 @@ function MiniAppTabela() {
 
   const [toast, setToast] = useState<string>('');
 
-  const [dirty, setDirty] = useState<Record<string, { STATUS: Status; OBSERVACAO: string; DT_ALTERACAO: string }>>({});
+  const [dirty, setDirty] = useState<Record<string, DirtyRow>>({});
   const dirtyCount = useMemo(() => Object.keys(dirty).length, [dirty]);
 
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -1266,24 +1274,44 @@ function MiniAppTabela() {
     setAllRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   }
 
-  function markDirty(row: Row, patch: { STATUS?: Status; OBSERVACAO?: string; DT_ALTERACAO?: string }) {
+  function markDirty(
+    row: Row,
+    patch: {
+      STATUS?: Status;
+      OBSERVACAO?: string;
+      DT_ALTERACAO?: string;
+      UPDATED_AT_MS?: number;
+    }
+  ) {
     const nextStatus = patch.STATUS ?? row.STATUS;
     const nextObs = patch.OBSERVACAO ?? row.OBSERVACAO ?? '';
-    const nextDtAlteracao = patch.DT_ALTERACAO ?? row.DT_ALTERACAO ?? nowLocalStamp();
+    const nextDtAlteracao = patch.DT_ALTERACAO ?? nowLocalStampPreciso();
+    const nextUpdatedAtMs = patch.UPDATED_AT_MS ?? Date.now();
 
-    setDirty((prev) => ({
-      ...prev,
-      [String(row.LINE)]: {
-        STATUS: nextStatus,
-        OBSERVACAO: nextObs,
-        DT_ALTERACAO: nextDtAlteracao,
-      },
-    }));
+    setDirty((prev) => {
+      const current = prev[String(row.LINE)];
+
+      if (current?.UPDATED_AT_MS && current.UPDATED_AT_MS > nextUpdatedAtMs) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [String(row.LINE)]: {
+          STATUS: nextStatus,
+          OBSERVACAO: nextObs,
+          DT_ALTERACAO: nextDtAlteracao,
+          UPDATED_AT_MS: nextUpdatedAtMs,
+        },
+      };
+    });
+
     setSaveTick((x) => x + 1);
   }
 
   function applyRowChange(row: Row, nextStatus: Status, nextObs: string) {
-    const stamp = nowLocalStamp();
+    const stamp = nowLocalStampPreciso();
+    const updatedAtMs = Date.now();
 
     updateRow(row.id, {
       STATUS: nextStatus,
@@ -1295,6 +1323,7 @@ function MiniAppTabela() {
       STATUS: nextStatus,
       OBSERVACAO: nextObs,
       DT_ALTERACAO: stamp,
+      UPDATED_AT_MS: updatedAtMs,
     });
   }
 
@@ -1406,6 +1435,7 @@ function MiniAppTabela() {
           STATUS: status,
           OBSERVACAO: obsClean,
           DT_ALTERACAO: v.DT_ALTERACAO,
+          UPDATED_AT_MS: v.UPDATED_AT_MS,
           ts: new Date().toISOString(),
         };
       });
