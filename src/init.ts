@@ -12,76 +12,122 @@ import {
   type Events,
 } from '@tma.js/sdk-react';
 
-/**
- * Type of theme_params expected by the "theme_changed" event.
- * (snake_case keys + index signature)
- */
 type ThemeParamsEvent = Events['theme_changed']['theme_params'];
 
-/**
- * Initializes the application and configures its dependencies.
- */
 export async function init(options: {
   debug: boolean;
   eruda: boolean;
   mockForMacOS: boolean;
 }): Promise<void> {
-  // Set @telegram-apps/sdk-react debug mode and initialize it.
   setDebug(options.debug);
-  initSDK();
 
-  // Add Eruda if needed.
-  options.eruda && void import('eruda').then(({ default: eruda }) => {
-    eruda.init();
-    eruda.position({ x: window.innerWidth - 50, y: 0 });
-  });
+  try {
+    initSDK();
+  } catch (e) {
+    console.error('Erro em initSDK()', e);
+  }
 
-  // Telegram for macOS has a ton of bugs, including cases, when the client doesn't
-  // even response to the "web_app_request_theme" method. It also generates an incorrect
-  // event for the "web_app_request_safe_area" method.
+  // Desligue eruda em tablet antigo
+  if (options.eruda) {
+    try {
+      const mod = await import('eruda');
+      const eruda = mod.default;
+      eruda.init();
+      eruda.position({ x: window.innerWidth - 50, y: 0 });
+    } catch (e) {
+      console.error('Erro ao iniciar eruda', e);
+    }
+  }
+
   if (options.mockForMacOS) {
-    let firstThemeSent = false;
+    try {
+      let firstThemeSent = false;
 
-    mockTelegramEnv({
-      onEvent(event, next) {
-        if (event.name === 'web_app_request_theme') {
-          let tp: ThemeParamsEvent = {};
+      mockTelegramEnv({
+        onEvent(event, next) {
+          if (event.name === 'web_app_request_theme') {
+            let tp: ThemeParamsEvent = {};
 
-          if (firstThemeSent) {
-            // themeParams.state() returns a partial theme params object (snake_case).
-            tp = themeParams.state() as ThemeParamsEvent;
-          } else {
-            firstThemeSent = true;
+            if (firstThemeSent) {
+              tp = themeParams.state() as ThemeParamsEvent;
+            } else {
+              firstThemeSent = true;
 
-            const fromLaunch = retrieveLaunchParams().tgWebAppThemeParams;
-            if (fromLaunch) tp = fromLaunch as ThemeParamsEvent;
+              const fromLaunch = retrieveLaunchParams().tgWebAppThemeParams;
+              if (fromLaunch) tp = fromLaunch as ThemeParamsEvent;
+            }
+
+            return emitEvent('theme_changed', { theme_params: tp });
           }
 
-          return emitEvent('theme_changed', { theme_params: tp });
-        }
+          if (event.name === 'web_app_request_safe_area') {
+            return emitEvent('safe_area_changed', {
+              left: 0,
+              top: 0,
+              right: 0,
+              bottom: 0,
+            });
+          }
 
-        if (event.name === 'web_app_request_safe_area') {
-          return emitEvent('safe_area_changed', { left: 0, top: 0, right: 0, bottom: 0 });
-        }
-
-        next();
-      },
-    });
+          next();
+        },
+      });
+    } catch (e) {
+      console.error('Erro no mockTelegramEnv()', e);
+    }
   }
 
-  // Mount all components used in the project.
-  backButton.mount.ifAvailable();
-  initData.restore();
-
-  if (miniApp.mount.isAvailable()) {
-    themeParams.mount();
-    miniApp.mount();
-    themeParams.bindCssVars();
+  try {
+    backButton.mount.ifAvailable();
+  } catch (e) {
+    console.error('Erro em backButton.mount.ifAvailable()', e);
   }
 
-  if (viewport.mount.isAvailable()) {
-    viewport.mount().then(() => {
-      viewport.bindCssVars();
-    });
+  try {
+    initData.restore();
+  } catch (e) {
+    console.error('Erro em initData.restore()', e);
+  }
+
+  try {
+    if (miniApp.mount.isAvailable()) {
+      try {
+        themeParams.mount();
+      } catch (e) {
+        console.error('Erro em themeParams.mount()', e);
+      }
+
+      try {
+        miniApp.mount();
+      } catch (e) {
+        console.error('Erro em miniApp.mount()', e);
+      }
+
+      try {
+        themeParams.bindCssVars();
+      } catch (e) {
+        console.error('Erro em themeParams.bindCssVars()', e);
+      }
+    }
+  } catch (e) {
+    console.error('Erro no bloco miniApp.mount', e);
+  }
+
+  try {
+    if (viewport.mount.isAvailable()) {
+      try {
+        await viewport.mount();
+      } catch (e) {
+        console.error('Erro em await viewport.mount()', e);
+      }
+
+      try {
+        viewport.bindCssVars();
+      } catch (e) {
+        console.error('Erro em viewport.bindCssVars()', e);
+      }
+    }
+  } catch (e) {
+    console.error('Erro no bloco viewport.mount', e);
   }
 }

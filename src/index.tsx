@@ -2,7 +2,6 @@
 import '@telegram-apps/telegram-ui/dist/styles.css';
 
 import ReactDOM from 'react-dom/client';
-import { StrictMode } from 'react';
 import { retrieveLaunchParams } from '@tma.js/sdk-react';
 
 import { Root } from '@/components/Root.tsx';
@@ -28,15 +27,11 @@ async function bootstrap() {
     // Configure all application dependencies
     await init({
       debug,
-      eruda: debug && ['ios', 'android'].includes(platform),
+      eruda: false,
       mockForMacOS: platform === 'macos',
     });
 
-    root.render(
-      <StrictMode>
-        <Root />
-      </StrictMode>,
-    );
+    root.render(<Root />);
 
   } catch (e) {
     root.render(<EnvUnsupported />);
