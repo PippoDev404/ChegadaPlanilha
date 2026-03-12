@@ -26,7 +26,7 @@ export default defineConfig({
     process.env.HTTPS && mkcert(),
   ],
   build: {
-    target: 'esnext',
+    target: 'es2017',
     minify: 'terser'
   },
   publicDir: './public',

@@ -24,17 +24,13 @@ type Row = {
   id: string;
   LINE: number;
   IDP: string;
-
   ESTADO: string;
   CIDADE: string;
   REGIAO_CIDADE: string;
-
   TF1: string;
   TF2: string;
-
   STATUS: Status;
   OBSERVACAO: string;
-
   DT_ALTERACAO: string;
 };
 
@@ -47,16 +43,22 @@ type DirtyRow = {
 
 type StatusFilter = 'TODOS' | 'PENDENTES' | Status;
 
+type IbgeMunicipio = {
+  id: number;
+  nome: string;
+  microrregiao?: {
+    mesorregiao?: {
+      UF?: { sigla?: string; nome?: string };
+    };
+  };
+};
+
 const PAGE_SIZE = 20;
 
 const API_GET_ENTREGA = 'https://n8n.srv962474.hstgr.cloud/webhook/entregas';
 const API_SAVE_PARTE = 'https://n8n.srv962474.hstgr.cloud/webhook/parte/salvar';
-
 const IBGE_MUNICIPIOS_API = 'https://servicodados.ibge.gov.br/api/v1/localidades/municipios';
 
-// =========================
-// THEME
-// =========================
 const globalCss = `
 :root{
   --bg: #FFFFFF;
@@ -89,7 +91,9 @@ const globalCss = `
   --radius: 15px;
 }
 
-html, body{ height: 100%; }
+html, body, #root {
+  height: 100%;
+}
 
 body{
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -102,22 +106,92 @@ body{
 button:disabled{ opacity: .55; cursor: not-allowed !important; }
 `;
 
-// =========================
-// HELPERS
-// =========================
-function getEntregaIdOnly(): string {
-  const hash = window.location.hash || '';
-  const qi = hash.indexOf('?');
-  if (qi >= 0) {
-    const qs = hash.slice(qi + 1);
-    const hp = new URLSearchParams(qs);
-    const v = (hp.get('entregaId') || '').trim();
-    if (v && v !== 'undefined' && v !== 'null') return v;
+function zeroPad(value: number | string, size: number) {
+  const text = String(value == null ? '' : value);
+  if ((text as any).padStart) {
+    return text.padStart(size, '0');
+  }
+  const zeros = '0000000000';
+  return (zeros + text).slice(-size);
+}
+
+function safeNormalizeText(value: string) {
+  const text = String(value || '').replace(/^\uFEFF/, '');
+  try {
+    if ((text as any).normalize) {
+      return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    }
+  } catch {}
+  return text;
+}
+
+function parseSimpleQueryString(qs: string) {
+  const out: Record<string, string> = {};
+  const clean = String(qs || '').replace(/^\?/, '').trim();
+  if (!clean) return out;
+
+  const parts = clean.split('&');
+  for (let i = 0; i < parts.length; i++) {
+    const piece = parts[i];
+    if (!piece) continue;
+
+    const eq = piece.indexOf('=');
+    let key = piece;
+    let val = '';
+
+    if (eq >= 0) {
+      key = piece.slice(0, eq);
+      val = piece.slice(eq + 1);
+    }
+
+    try {
+      key = decodeURIComponent(String(key || '').replace(/\+/g, ' '));
+    } catch {}
+    try {
+      val = decodeURIComponent(String(val || '').replace(/\+/g, ' '));
+    } catch {}
+
+    out[key] = val;
   }
 
-  const sp = new URLSearchParams(window.location.search || '');
-  const v2 = (sp.get('entregaId') || '').trim();
-  if (v2 && v2 !== 'undefined' && v2 !== 'null') return v2;
+  return out;
+}
+
+function getEntregaIdOnly(): string {
+  try {
+    const hash = window.location.hash || '';
+    const qi = hash.indexOf('?');
+
+    if (qi >= 0) {
+      const hashQs = hash.slice(qi + 1);
+
+      try {
+        if (typeof URLSearchParams !== 'undefined') {
+          const hp = new URLSearchParams(hashQs);
+          const v = String(hp.get('entregaId') || '').trim();
+          if (v && v !== 'undefined' && v !== 'null') return v;
+        }
+      } catch {}
+
+      const parsedHash = parseSimpleQueryString(hashQs);
+      const vHash = String(parsedHash.entregaId || '').trim();
+      if (vHash && vHash !== 'undefined' && vHash !== 'null') return vHash;
+    }
+
+    const searchQs = window.location.search || '';
+
+    try {
+      if (typeof URLSearchParams !== 'undefined') {
+        const sp = new URLSearchParams(searchQs);
+        const v2 = String(sp.get('entregaId') || '').trim();
+        if (v2 && v2 !== 'undefined' && v2 !== 'null') return v2;
+      }
+    } catch {}
+
+    const parsedSearch = parseSimpleQueryString(searchQs);
+    const vSearch = String(parsedSearch.entregaId || '').trim();
+    if (vSearch && vSearch !== 'undefined' && vSearch !== 'null') return vSearch;
+  } catch {}
 
   return '';
 }
@@ -131,29 +205,24 @@ function safeTel(v: string) {
 function telToDial(v: string) {
   const digits = safeTel(v).replace(/[^\d]/g, '');
   if (!digits) return '';
-  if (digits.startsWith('0') || digits.startsWith('55')) return digits;
-  return `0${digits}`;
+  if (digits.indexOf('0') === 0 || digits.indexOf('55') === 0) return digits;
+  return '0' + digits;
 }
 
 function nowLocalStampPreciso() {
   const d = new Date();
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const yyyy = d.getFullYear();
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mi = String(d.getMinutes()).padStart(2, '0');
-  const ss = String(d.getSeconds()).padStart(2, '0');
-  const ms = String(d.getMilliseconds()).padStart(3, '0');
-  return `${dd}/${mm}/${yyyy} ${hh}:${mi}:${ss}.${ms}`;
+  const dd = zeroPad(d.getDate(), 2);
+  const mm = zeroPad(d.getMonth() + 1, 2);
+  const yyyy = String(d.getFullYear());
+  const hh = zeroPad(d.getHours(), 2);
+  const mi = zeroPad(d.getMinutes(), 2);
+  const ss = zeroPad(d.getSeconds(), 2);
+  const ms = zeroPad(d.getMilliseconds(), 3);
+  return dd + '/' + mm + '/' + yyyy + ' ' + hh + ':' + mi + ':' + ss + '.' + ms;
 }
 
 function normalizeHeader(h: string) {
-  return String(h || '')
-    .replace(/^\uFEFF/, '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
-    .toUpperCase();
+  return safeNormalizeText(h).trim().toUpperCase();
 }
 
 function canonicalHeaderKey(h: string) {
@@ -183,9 +252,7 @@ function canonicalHeaderKey(h: string) {
 }
 
 function sanitizeStatus(raw: string): Status {
-  const s = String(raw || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+  const s = String(safeNormalizeText(raw) || '')
     .trim()
     .toUpperCase()
     .replace(/\s+/g, '_')
@@ -195,90 +262,63 @@ function sanitizeStatus(raw: string): Status {
 
   if (s === 'SEM_RESPOSTA') return 'RETORNO';
   if (s === 'LIGAR_MAIS_TARDE') return 'RETORNO';
-  if (s.startsWith('RETORNO')) return 'RETORNO';
+  if (s.indexOf('RETORNO') === 0) return 'RETORNO';
 
   if (s === 'ATENDEU' || s === 'PESQUISA_FEITA') return 'PESQUISA_FEITA';
 
-  if (
-    s === 'NAO_ATENDEU' ||
-    s === 'NAO_ATENDEU_CAIXA_POSTAL' ||
-    s === 'CAIXA_POSTAL'
-  ) {
+  if (s === 'NAO_ATENDEU' || s === 'NAO_ATENDEU_CAIXA_POSTAL' || s === 'CAIXA_POSTAL') {
     return 'NAO_ATENDEU';
   }
 
   if (s === 'OUTRA_CIDADE') return 'OUTRA_CIDADE';
 
-  if (
-    s === 'SO_MORA' ||
-    s === 'SO_VOTA' ||
-    s === 'NAO_PODE_FAZER_PESQUISA'
-  ) {
+  if (s === 'SO_MORA' || s === 'SO_VOTA' || s === 'NAO_PODE_FAZER_PESQUISA') {
     return 'NAO_PODE_FAZER_PESQUISA';
   }
 
-  if (
-    s === 'NUMERO_NAO_EXISTE' ||
-    s === 'NUMERO_INEXISTENTE'
-  ) {
+  if (s === 'NUMERO_NAO_EXISTE' || s === 'NUMERO_INEXISTENTE') {
     return 'NUMERO_NAO_EXISTE';
   }
 
-  if (
-    s === 'REMOVER_DA_LISTA' ||
-    s === 'REMOVER_LISTA'
-  ) {
+  if (s === 'REMOVER_DA_LISTA' || s === 'REMOVER_LISTA') {
     return 'REMOVER_DA_LISTA';
   }
 
   if (s === 'RECUSA') return 'RECUSA';
-
   if (s === 'PENDENTE') return 'PENDENTE';
 
   return 'PENDENTE';
 }
 
-// =========================
-// OUTRA CIDADE HELPERS
-// =========================
 function buildOutraCidadeObs(tipo: OutraCidadeTipo, valor?: string) {
   const v = String(valor || '').trim();
-
   if (tipo === 'NQ_RESPONDER') return 'NQ_RESPONDER';
-
   return v || 'MORA_VOTA';
 }
 
 function outraCidadeFromObs(obs: string) {
   const t = String(obs || '').trim();
-
   if (t === 'NQ_RESPONDER') return '';
   return t;
 }
 
 function outraCidadeLabel(obs: string) {
   const t = String(obs || '').trim();
-
   if (t === 'NQ_RESPONDER') return 'MORA/VOTA EM OUTRA CIDADE • NQ RESPONDER';
-
-  return t ? `MORA/VOTA EM OUTRA CIDADE • ${t}` : 'MORA/VOTA EM OUTRA CIDADE';
+  return t ? 'MORA/VOTA EM OUTRA CIDADE • ' + t : 'MORA/VOTA EM OUTRA CIDADE';
 }
 
 function obsToSave(status: Status, obs: string) {
   const t = String(obs || '').trim();
 
-  if (status === 'OUTRA_CIDADE') {
-    return t;
-  }
+  if (status === 'OUTRA_CIDADE') return t;
 
   if (status === 'RETORNO') {
     const hhmm = retornoLabelFromObs(t) || t.replace(/^RETORNO\s*[-–—]?\s*/i, '').trim();
     return hhmm;
   }
 
-  if (status === 'NAO_PODE_FAZER_PESQUISA') {
-    return '';
-  }
+  if (status === 'NAO_PODE_FAZER_PESQUISA') return '';
 
   return t;
 }
@@ -292,9 +332,9 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
   let inQuotes = false;
 
   for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
+    const ch = text.charAt(i);
     if (ch === '"') {
-      const next = text[i + 1];
+      const next = text.charAt(i + 1);
       if (inQuotes && next === '"') {
         cur += '"';
         i++;
@@ -312,15 +352,15 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
   }
   if (cur) lines.push(cur);
 
-  const splitLine = (line: string) => {
+  function splitLine(line: string) {
     const out: string[] = [];
     let c = '';
     let q = false;
 
     for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
+      const ch = line.charAt(i);
       if (ch === '"') {
-        const next = line[i + 1];
+        const next = line.charAt(i + 1);
         if (q && next === '"') {
           c += '"';
           i++;
@@ -336,46 +376,74 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
       }
       c += ch;
     }
+
     out.push(c);
-    return out.map((x) => x.trim());
-  };
 
-  const headers = splitLine(lines[0]).map((h) => h.replace(/^"|"$/g, '').trim());
+    const cleaned: string[] = [];
+    for (let j = 0; j < out.length; j++) {
+      cleaned.push(String(out[j] || '').trim());
+    }
+    return cleaned;
+  }
 
-  const rows = lines.slice(1).map((ln) => {
+  const rawHeaders = splitLine(lines[0]);
+  const headers: string[] = [];
+  for (let i = 0; i < rawHeaders.length; i++) {
+    headers.push(String(rawHeaders[i] || '').replace(/^"|"$/g, '').trim());
+  }
+
+  const rows: Record<string, string>[] = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const ln = lines[i];
     const cols = splitLine(ln);
     const obj: Record<string, string> = {};
 
-    headers.forEach((h, idx) => {
-      obj[h] = (cols[idx] ?? '').replace(/^"|"$/g, '');
-    });
+    for (let j = 0; j < headers.length; j++) {
+      obj[headers[j]] = String(cols[j] == null ? '' : cols[j]).replace(/^"|"$/g, '');
+    }
 
-    return obj;
-  });
+    rows.push(obj);
+  }
 
   return { headers, rows };
 }
 
 function pickCanonicalValue(obj: Record<string, string>, headers: string[], familyKey: string) {
-  const matchingHeaders = headers.filter((h) => canonicalHeaderKey(h) === familyKey);
+  const matchingHeaders: string[] = [];
+
+  for (let i = 0; i < headers.length; i++) {
+    if (canonicalHeaderKey(headers[i]) === familyKey) {
+      matchingHeaders.push(headers[i]);
+    }
+  }
 
   if (!matchingHeaders.length) return '';
 
-  const values = matchingHeaders
-    .map((realHeader) => String(obj[realHeader] ?? '').trim());
+  const values: string[] = [];
+  for (let i = 0; i < matchingHeaders.length; i++) {
+    const realHeader = matchingHeaders[i];
+    values.push(String(obj[realHeader] == null ? '' : obj[realHeader]).trim());
+  }
 
   for (let i = values.length - 1; i >= 0; i--) {
     if (values[i]) return values[i];
   }
 
-  return values[values.length - 1] || '';
+  return values.length ? values[values.length - 1] : '';
 }
 
 function csvToRows(csv: string): Row[] {
-  const { headers, rows } = parseCsv(csv);
+  const parsed = parseCsv(csv);
+  const headers = parsed.headers;
+  const rows = parsed.rows;
+
   if (!rows.length) return [];
 
-  return rows.map((r, idx) => {
+  const out: Row[] = [];
+
+  for (let idx = 0; idx < rows.length; idx++) {
+    const r = rows[idx];
     const lineCsv = pickCanonicalValue(r, headers, 'LINE');
     const IDP = pickCanonicalValue(r, headers, 'IDP') || String(idx + 1);
 
@@ -392,9 +460,9 @@ function csvToRows(csv: string): Row[] {
 
     const lineNum = Number(String(lineCsv || '').trim());
 
-    return {
-      id: `row-${idx + 1}`,
-      LINE: Number.isFinite(lineNum) && lineNum > 0 ? lineNum : idx + 1,
+    out.push({
+      id: 'row-' + String(idx + 1),
+      LINE: isFinite(lineNum) && lineNum > 0 ? lineNum : idx + 1,
       IDP: String(IDP || ''),
       ESTADO: String(ESTADO || ''),
       CIDADE: String(CIDADE || ''),
@@ -404,8 +472,10 @@ function csvToRows(csv: string): Row[] {
       STATUS: sanitizeStatus(statusCsv),
       OBSERVACAO: String(obsCsv || ''),
       DT_ALTERACAO: String(dtAlteracaoCsv || ''),
-    };
-  });
+    });
+  }
+
+  return out;
 }
 
 function retornoLabelFromObs(obs: string) {
@@ -414,7 +484,7 @@ function retornoLabelFromObs(obs: string) {
   if (/^\d{1,2}:\d{2}$/.test(t)) return t;
 
   const m = t.match(/RETORNO\s*[-–—]?\s*(\d{1,2}:\d{2})/i);
-  return m?.[1] || '';
+  return m && m[1] ? m[1] : '';
 }
 
 function statusText(row: Row) {
@@ -432,7 +502,7 @@ function statusText(row: Row) {
 
   if (s === 'RETORNO') {
     const hhmm = retornoLabelFromObs(row.OBSERVACAO);
-    return hhmm ? `RETORNO • ${hhmm}` : 'RETORNO';
+    return hhmm ? 'RETORNO • ' + hhmm : 'RETORNO';
   }
 
   if (s === 'REMOVER_DA_LISTA') return 'REMOVER DA LISTA';
@@ -488,11 +558,109 @@ function rowBg(status: Status) {
   }
 }
 
-// =========================
-// UI
-// =========================
-function StatusPill({ row }: { row: Row }) {
-  const c = statusVars(row.STATUS);
+function getUfNomeFromMunicipio(m: IbgeMunicipio) {
+  return (
+    (m &&
+      m.microrregiao &&
+      m.microrregiao.mesorregiao &&
+      m.microrregiao.mesorregiao.UF &&
+      (m.microrregiao.mesorregiao.UF.nome || m.microrregiao.mesorregiao.UF.sigla)) ||
+    ''
+  );
+}
+
+function cityLabel(nome: string, estadoNome: string) {
+  const n = String(nome || '').trim();
+  const e = String(estadoNome || '').trim();
+  if (!n) return '';
+  return e ? n + '/' + e : n;
+}
+
+async function fallbackCopyText(text: string) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', 'true');
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  ta.style.left = '-9999px';
+  ta.style.top = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+
+  let ok = false;
+  try {
+    ok = document.execCommand('copy');
+  } catch {
+    ok = false;
+  }
+
+  document.body.removeChild(ta);
+
+  if (!ok) {
+    throw new Error('Falha ao copiar');
+  }
+}
+
+class AppErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; errorText: string }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, errorText: '' };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return {
+      hasError: true,
+      errorText: String((error && (error.stack || error.message)) || error || 'Erro desconhecido'),
+    };
+  }
+
+  componentDidCatch(error: any) {
+    try {
+      console.error('Mini App error:', error);
+    } catch {}
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 16 }}>
+          <style>{globalCss}</style>
+          <div style={styles.card}>
+            <div style={{ padding: 16 }}>
+              <div style={{ fontWeight: 900, fontSize: 16 }}>⚠️ Erro no Mini App</div>
+              <div style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: 13 }}>
+                O aplicativo encontrou um erro de compatibilidade ou execução.
+              </div>
+              <pre
+                style={{
+                  marginTop: 12,
+                  padding: 12,
+                  borderRadius: 10,
+                  background: 'var(--surfaceMuted)',
+                  border: '1px solid var(--border)',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  fontSize: 12,
+                }}
+              >
+                {this.state.errorText}
+              </pre>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children as any;
+  }
+}
+
+function StatusPill(props: { row: Row }) {
+  const c = statusVars(props.row.STATUS);
   return (
     <span
       style={{
@@ -501,7 +669,7 @@ function StatusPill({ row }: { row: Row }) {
         gap: 6,
         padding: '4px 9px',
         borderRadius: 999,
-        border: `2px solid ${c.bd}`,
+        border: '2px solid ' + c.bd,
         background: c.bg,
         fontWeight: 900,
         fontSize: 11,
@@ -509,75 +677,66 @@ function StatusPill({ row }: { row: Row }) {
         whiteSpace: 'nowrap',
       }}
     >
-      {statusText(row)}
+      {statusText(props.row)}
     </span>
   );
 }
 
-function ActionButton({
-  active,
-  kind,
-  children,
-  onClick,
-}: {
+function ActionButton(props: {
   active: boolean;
   kind: 'danger' | 'warning' | 'success' | 'blueDark' | 'blueLight' | 'orange' | 'purple' | 'teal' | 'pink';
   children: React.ReactNode;
   onClick: () => void;
 }) {
+  const kind = props.kind;
+
   const base =
     kind === 'danger'
       ? { border: '2px solid rgba(239,68,68,.70)', background: 'rgba(239,68,68,.28)', color: 'var(--text)' }
       : kind === 'orange'
-        ? { border: '2px solid rgba(249,115,22,.70)', background: 'rgba(249,115,22,.28)', color: 'var(--text)' }
-        : kind === 'warning'
-          ? { border: '2px solid rgba(245,158,11,.70)', background: 'rgba(245,158,11,.28)', color: 'var(--text)' }
-          : kind === 'blueDark'
-            ? { border: '2px solid rgba(30,58,138,.65)', background: 'rgba(30,58,138,.24)', color: 'var(--text)' }
-            : kind === 'blueLight'
-              ? { border: '2px solid rgba(56,189,248,.65)', background: 'rgba(56,189,248,.22)', color: 'var(--text)' }
-              : kind === 'purple'
-                ? { border: '2px solid rgba(124,58,237,.65)', background: 'rgba(124,58,237,.22)', color: 'var(--text)' }
-                : kind === 'teal'
-                  ? { border: '2px solid rgba(15,118,110,.65)', background: 'rgba(15,118,110,.18)', color: 'var(--text)' }
-                  : kind === 'pink'
-                    ? { border: '2px solid rgba(190,24,93,.65)', background: 'rgba(190,24,93,.16)', color: 'var(--text)' }
-                    : { border: '2px solid rgba(22,163,74,.65)', background: 'rgba(22,163,74,.24)', color: 'var(--text)' };
+      ? { border: '2px solid rgba(249,115,22,.70)', background: 'rgba(249,115,22,.28)', color: 'var(--text)' }
+      : kind === 'warning'
+      ? { border: '2px solid rgba(245,158,11,.70)', background: 'rgba(245,158,11,.28)', color: 'var(--text)' }
+      : kind === 'blueDark'
+      ? { border: '2px solid rgba(30,58,138,.65)', background: 'rgba(30,58,138,.24)', color: 'var(--text)' }
+      : kind === 'blueLight'
+      ? { border: '2px solid rgba(56,189,248,.65)', background: 'rgba(56,189,248,.22)', color: 'var(--text)' }
+      : kind === 'purple'
+      ? { border: '2px solid rgba(124,58,237,.65)', background: 'rgba(124,58,237,.22)', color: 'var(--text)' }
+      : kind === 'teal'
+      ? { border: '2px solid rgba(15,118,110,.65)', background: 'rgba(15,118,110,.18)', color: 'var(--text)' }
+      : kind === 'pink'
+      ? { border: '2px solid rgba(190,24,93,.65)', background: 'rgba(190,24,93,.16)', color: 'var(--text)' }
+      : { border: '2px solid rgba(22,163,74,.65)', background: 'rgba(22,163,74,.24)', color: 'var(--text)' };
 
   return (
     <button
-      onClick={onClick}
+      onClick={props.onClick}
       style={{
         ...styles.btnAction,
         ...base,
-        ...(active ? styles.btnActive : {}),
+        ...(props.active ? styles.btnActive : {}),
       }}
     >
-      {children}
+      {props.children}
     </button>
   );
 }
 
-function MiniTel({
-  label,
-  value,
-  disabled,
-  onClick,
-  onCopy,
-}: {
+function MiniTel(props: {
   label: string;
   value: string;
   disabled: boolean;
   onClick: () => void;
   onCopy: () => void;
 }) {
-  const enabled = !disabled;
+  const enabled = !props.disabled;
 
   return (
     <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
       <button
         disabled={!enabled}
-        onClick={onClick}
+        onClick={props.onClick}
         style={{
           ...styles.btn,
           ...styles.btnPrimary,
@@ -591,60 +750,52 @@ function MiniTel({
           cursor: enabled ? 'pointer' : 'not-allowed',
           whiteSpace: 'nowrap',
         }}
-        title={value || ''}
+        title={props.value || ''}
       >
-        {`Ligar ${label} 📞`}
+        {'Ligar ' + props.label + ' 📞'}
       </button>
 
       <button
-        disabled={!value}
-        onClick={onCopy}
+        disabled={!props.value}
+        onClick={props.onCopy}
         style={{
           ...styles.btn,
           ...styles.btnPrimary,
-          background: value ? 'var(--primary)' : 'var(--surfaceMuted)',
-          color: value ? 'var(--primary-text)' : 'var(--text-muted)',
+          background: props.value ? 'var(--primary)' : 'var(--surfaceMuted)',
+          color: props.value ? 'var(--primary-text)' : 'var(--text-muted)',
           borderColor: 'var(--border)',
           padding: '9px 12px',
           borderRadius: 10,
           fontSize: 12,
           fontWeight: 900,
-          cursor: value ? 'pointer' : 'not-allowed',
+          cursor: props.value ? 'pointer' : 'not-allowed',
           whiteSpace: 'nowrap',
         }}
-        title={value ? `Copiar ${label}` : ''}
+        title={props.value ? 'Copiar ' + props.label : ''}
       >
-        {`Copiar ${label}`}
+        {'Copiar ' + props.label}
       </button>
     </div>
   );
 }
 
-// =========================
-// MODAL: Retorno (time)
-// =========================
-function RetornoModal({
-  open,
-  initialValue,
-  onCancel,
-  onConfirm,
-}: {
+function RetornoModal(props: {
   open: boolean;
   initialValue: string;
   onCancel: () => void;
   onConfirm: (hhmm: string) => void;
 }) {
-  const [value, setValue] = useState(initialValue || '');
+  const [value, setValue] = useState(props.initialValue || '');
 
   useEffect(() => {
-    setValue(initialValue || '');
-  }, [initialValue, open]);
+    setValue(props.initialValue || '');
+  }, [props.initialValue, props.open]);
 
-  if (!open) return null;
+  if (!props.open) return null;
 
   return (
-    <div onClick={onCancel} style={stylesModal.overlay}>
-      <div onClick={(e) => e.stopPropagation()} style={stylesModal.box}>
+    <div onClick={props.onCancel} style={stylesModal.overlay}>
+      <div onClick={function (e) { e.stopPropagation(); }} style={stylesModal.box}>
         <div style={stylesModal.header}>
           <div style={stylesModal.title}>⏰ Agendar retorno</div>
           <div style={stylesModal.sub}>Selecione a hora e o minuto</div>
@@ -655,23 +806,23 @@ function RetornoModal({
             type="time"
             step={60}
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={function (e) { setValue(e.target.value); }}
             style={stylesModal.input}
           />
 
           <div style={stylesModal.rowBtns}>
-            <button style={styles.btn} onClick={onCancel}>
+            <button style={styles.btn} onClick={props.onCancel}>
               Cancelar
             </button>
             <button
               style={{ ...styles.btn, ...styles.btnPrimary }}
-              onClick={() => {
+              onClick={function () {
                 const cleaned = String(value || '').trim();
                 if (!cleaned || !/^\d{2}:\d{2}$/.test(cleaned)) {
                   window.alert('Selecione um horário válido.');
                   return;
                 }
-                onConfirm(cleaned);
+                props.onConfirm(cleaned);
               }}
             >
               Confirmar
@@ -683,36 +834,7 @@ function RetornoModal({
   );
 }
 
-// =========================
-// MODAL: Outra cidade
-// =========================
-type IbgeMunicipio = {
-  id: number;
-  nome: string;
-  microrregiao?: {
-    mesorregiao?: {
-      UF?: { sigla?: string; nome?: string };
-    };
-  };
-};
-
-function getUfNomeFromMunicipio(m: IbgeMunicipio) {
-  return m?.microrregiao?.mesorregiao?.UF?.nome || m?.microrregiao?.mesorregiao?.UF?.sigla || '';
-}
-
-function cityLabel(nome: string, estadoNome: string) {
-  const n = String(nome || '').trim();
-  const e = String(estadoNome || '').trim();
-  if (!n) return '';
-  return e ? `${n}/${e}` : n;
-}
-
-function OutraCidadeModal({
-  open,
-  initialValue,
-  onCancel,
-  onConfirm,
-}: {
+function OutraCidadeModal(props: {
   open: boolean;
   initialValue: string;
   onCancel: () => void;
@@ -725,21 +847,23 @@ function OutraCidadeModal({
   const [selected, setSelected] = useState('');
 
   useEffect(() => {
-    if (!open) return;
+    if (!props.open) return;
 
     setLoadErr('');
-    setQuery(initialValue || '');
-    setSelected(initialValue || '');
+    setQuery(props.initialValue || '');
+    setSelected(props.initialValue || '');
 
     if (all.length) return;
 
-    (async () => {
+    (async function () {
       try {
         setLoading(true);
         setLoadErr('');
+
         const resp = await fetch(IBGE_MUNICIPIOS_API, { cache: 'force-cache' });
-        const raw = await resp.text().catch(() => '');
-        if (!resp.ok) throw new Error(`HTTP ${resp.status} • ${raw || 'Sem body'}`);
+        const raw = await resp.text().catch(function () { return ''; });
+
+        if (!resp.ok) throw new Error('HTTP ' + resp.status + ' • ' + (raw || 'Sem body'));
 
         let data: any;
         try {
@@ -749,39 +873,46 @@ function OutraCidadeModal({
         }
 
         const list: IbgeMunicipio[] = Array.isArray(data) ? data : [];
-        const mapped = list
-          .map((m) => {
-            const estado = getUfNomeFromMunicipio(m);
-            const nome = String(m?.nome || '').trim();
-            const label = cityLabel(nome, estado);
-            return { label, nome, estado };
-          })
-          .filter((x) => x.label)
-          .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+
+        const mapped: { label: string; nome: string; estado: string }[] = [];
+
+        for (let i = 0; i < list.length; i++) {
+          const m = list[i];
+          const estado = getUfNomeFromMunicipio(m);
+          const nome = String((m && m.nome) || '').trim();
+          const label = cityLabel(nome, estado);
+          if (label) {
+            mapped.push({ label, nome, estado });
+          }
+        }
+
+        mapped.sort(function (a, b) {
+          return a.label.localeCompare(b.label, 'pt-BR');
+        });
 
         setAll(mapped);
       } catch (e: any) {
-        setLoadErr(String(e?.message || e || 'Erro ao carregar cidades do IBGE'));
+        setLoadErr(String((e && e.message) || e || 'Erro ao carregar cidades do IBGE'));
       } finally {
         setLoading(false);
       }
     })();
-  }, [open, initialValue, all.length]);
+  }, [props.open, props.initialValue, all.length]);
 
-  const options = useMemo(() => {
+  const options = useMemo(function () {
     const q = String(query || '').trim().toLowerCase();
 
     if (!all.length) return [];
 
     if (!q) return all.slice(0, 50);
 
-    const startsWithNome = all.filter((c) =>
-      String(c.nome || '').trim().toLowerCase().startsWith(q)
-    );
+    const startsWithNome = all.filter(function (c) {
+      return String(c.nome || '').trim().toLowerCase().indexOf(q) === 0;
+    });
 
     if (startsWithNome.length) {
       return startsWithNome
-        .sort((a, b) => {
+        .sort(function (a, b) {
           const aNome = a.nome.toLowerCase();
           const bNome = b.nome.toLowerCase();
 
@@ -793,30 +924,32 @@ function OutraCidadeModal({
         .slice(0, 50);
     }
 
-    const startsWithWordInNome = all.filter((c) =>
-      String(c.nome || '')
-        .trim()
-        .toLowerCase()
-        .split(/\s+/)
-        .some((part) => part.startsWith(q))
-    );
+    const startsWithWordInNome = all.filter(function (c) {
+      const pieces = String(c.nome || '').trim().toLowerCase().split(/\s+/);
+      for (let i = 0; i < pieces.length; i++) {
+        if (pieces[i].indexOf(q) === 0) return true;
+      }
+      return false;
+    });
 
     if (startsWithWordInNome.length) {
       return startsWithWordInNome
-        .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
+        .sort(function (a, b) {
+          return a.label.localeCompare(b.label, 'pt-BR');
+        })
         .slice(0, 50);
     }
 
     return [];
   }, [all, query]);
 
-  if (!open) return null;
+  if (!props.open) return null;
 
   return (
-    <div onClick={onCancel} style={stylesModal.overlay}>
-      <div onClick={(e) => e.stopPropagation()} style={{ ...stylesModal.box, width: 'min(560px, 96vw)' }}>
+    <div onClick={props.onCancel} style={stylesModal.overlay}>
+      <div onClick={function (e) { e.stopPropagation(); }} style={{ ...stylesModal.box, width: 'min(560px, 96vw)' }}>
         <div style={stylesModal.header}>
-          <div style={stylesModal.title}> Mora/Vota em outra cidade</div>
+          <div style={stylesModal.title}>Mora/Vota em outra cidade</div>
           <div style={stylesModal.sub}>Digite o começo do nome da cidade ou escolha NQ Responder</div>
         </div>
 
@@ -837,7 +970,7 @@ function OutraCidadeModal({
 
           <input
             value={query}
-            onChange={(e) => {
+            onChange={function (e) {
               const v = e.target.value;
               setQuery(v);
               setSelected(v);
@@ -851,7 +984,7 @@ function OutraCidadeModal({
           <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button
               type="button"
-              onClick={() => {
+              onClick={function () {
                 setQuery('');
                 setSelected('NQ_RESPONDER');
               }}
@@ -877,13 +1010,13 @@ function OutraCidadeModal({
             {loading ? (
               <div style={{ padding: 12, fontSize: 13, color: 'var(--text-muted)' }}>Carregando cidades…</div>
             ) : options.length ? (
-              options.map((c) => {
+              options.map(function (c) {
                 const active = selected === c.label;
                 return (
                   <button
                     key={c.label}
                     type="button"
-                    onClick={() => {
+                    onClick={function () {
                       setQuery(c.label);
                       setSelected(c.label);
                     }}
@@ -912,22 +1045,18 @@ function OutraCidadeModal({
           </div>
 
           <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-            {loading
-              ? 'Carregando…'
-              : all.length
-                ? `Total de cidades: ${all.length} • Mostrando até ${options.length}`
-                : '—'}
+            {loading ? 'Carregando…' : all.length ? 'Total de cidades: ' + all.length + ' • Mostrando até ' + options.length : '—'}
           </div>
 
           <div style={stylesModal.rowBtns}>
-            <button style={styles.btn} onClick={onCancel}>
+            <button style={styles.btn} onClick={props.onCancel}>
               Cancelar
             </button>
             <button
               style={{ ...styles.btn, ...styles.btnPrimary }}
-              onClick={() => {
+              onClick={function () {
                 if (selected === 'NQ_RESPONDER') {
-                  onConfirm({ tipo: 'NQ_RESPONDER', city: '' });
+                  props.onConfirm({ tipo: 'NQ_RESPONDER', city: '' });
                   return;
                 }
 
@@ -937,7 +1066,7 @@ function OutraCidadeModal({
                   return;
                 }
 
-                onConfirm({ tipo: 'MORA_VOTA', city });
+                props.onConfirm({ tipo: 'MORA_VOTA', city: city });
               }}
               disabled={loading || !!loadErr}
             >
@@ -950,20 +1079,7 @@ function OutraCidadeModal({
   );
 }
 
-// =========================
-// MODAL: Ações da linha
-// =========================
-function RowActionsModal({
-  open,
-  row,
-  onClose,
-  onToggleStatus,
-  onCall,
-  onCopy,
-  onOpenRetorno,
-  onOpenOutraCidade,
-  onSetNaoPodeFazerPesquisa,
-}: {
+function RowActionsModal(props: {
   open: boolean;
   row: Row | null;
   onClose: () => void;
@@ -974,16 +1090,16 @@ function RowActionsModal({
   onOpenOutraCidade: () => void;
   onSetNaoPodeFazerPesquisa: () => void;
 }) {
-  if (!open || !row) return null;
+  if (!props.open || !props.row) return null;
 
+  const row = props.row;
   const tf1 = safeTel(row.TF1);
   const tf2 = safeTel(row.TF2);
-
   const isNaoAtendeuOuCaixa = row.STATUS === 'NAO_ATENDEU' || row.STATUS === 'CAIXA_POSTAL';
 
   return (
-    <div onClick={onClose} style={stylesModal.overlay}>
-      <div onClick={(e) => e.stopPropagation()} style={{ ...stylesModal.box, width: 'min(760px, 96vw)' }}>
+    <div onClick={props.onClose} style={stylesModal.overlay}>
+      <div onClick={function (e) { e.stopPropagation(); }} style={{ ...stylesModal.box, width: 'min(760px, 96vw)' }}>
         <div style={stylesModal.header}>
           <div style={stylesModal.title}>Ações • IDP {row.IDP}</div>
           <div style={stylesModal.sub}>
@@ -995,9 +1111,9 @@ function RowActionsModal({
           <ActionButton
             active={row.STATUS === 'PESQUISA_FEITA'}
             kind="success"
-            onClick={() => {
-              onToggleStatus('PESQUISA_FEITA');
-              onClose();
+            onClick={function () {
+              props.onToggleStatus('PESQUISA_FEITA');
+              props.onClose();
             }}
           >
             Pesquisa Feita
@@ -1006,9 +1122,9 @@ function RowActionsModal({
           <ActionButton
             active={isNaoAtendeuOuCaixa}
             kind="warning"
-            onClick={() => {
-              onToggleStatus('NAO_ATENDEU');
-              onClose();
+            onClick={function () {
+              props.onToggleStatus('NAO_ATENDEU');
+              props.onClose();
             }}
           >
             Não atendeu/caixa postal
@@ -1017,9 +1133,9 @@ function RowActionsModal({
           <ActionButton
             active={row.STATUS === 'NUMERO_NAO_EXISTE'}
             kind="danger"
-            onClick={() => {
-              onToggleStatus('NUMERO_NAO_EXISTE');
-              onClose();
+            onClick={function () {
+              props.onToggleStatus('NUMERO_NAO_EXISTE');
+              props.onClose();
             }}
           >
             Nº Não Existe
@@ -1028,9 +1144,9 @@ function RowActionsModal({
           <ActionButton
             active={row.STATUS === 'RECUSA'}
             kind="pink"
-            onClick={() => {
-              onToggleStatus('RECUSA');
-              onClose();
+            onClick={function () {
+              props.onToggleStatus('RECUSA');
+              props.onClose();
             }}
           >
             Recusa
@@ -1039,13 +1155,13 @@ function RowActionsModal({
           <ActionButton
             active={row.STATUS === 'RETORNO'}
             kind="blueDark"
-            onClick={() => {
+            onClick={function () {
               if (row.STATUS === 'RETORNO') {
-                onToggleStatus('RETORNO');
-                onClose();
+                props.onToggleStatus('RETORNO');
+                props.onClose();
                 return;
               }
-              onOpenRetorno();
+              props.onOpenRetorno();
             }}
           >
             Retorno
@@ -1054,8 +1170,8 @@ function RowActionsModal({
           <ActionButton
             active={row.STATUS === 'OUTRA_CIDADE'}
             kind="orange"
-            onClick={() => {
-              onOpenOutraCidade();
+            onClick={function () {
+              props.onOpenOutraCidade();
             }}
           >
             Mora/Vota em outra cidade
@@ -1064,9 +1180,9 @@ function RowActionsModal({
           <ActionButton
             active={row.STATUS === 'NAO_PODE_FAZER_PESQUISA'}
             kind="teal"
-            onClick={() => {
-              onSetNaoPodeFazerPesquisa();
-              onClose();
+            onClick={function () {
+              props.onSetNaoPodeFazerPesquisa();
+              props.onClose();
             }}
           >
             Não pode fazer a pesquisa
@@ -1075,9 +1191,9 @@ function RowActionsModal({
           <ActionButton
             active={row.STATUS === 'REMOVER_DA_LISTA'}
             kind="purple"
-            onClick={() => {
-              onToggleStatus('REMOVER_DA_LISTA');
-              onClose();
+            onClick={function () {
+              props.onToggleStatus('REMOVER_DA_LISTA');
+              props.onClose();
             }}
           >
             Remover da lista
@@ -1089,17 +1205,17 @@ function RowActionsModal({
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <button
                 style={{ ...styles.btn, ...styles.btnPrimary }}
-                onClick={() => onCopy('IDP', row.IDP)}
+                onClick={function () { props.onCopy('IDP', row.IDP); }}
                 title="Copiar IDP"
               >
                 Copiar IDP 📋
               </button>
 
-              <MiniTel label="TF1" value={row.TF1} disabled={!tf1} onClick={() => onCall('TF1')} onCopy={() => onCopy('TF1', row.TF1)} />
-              <MiniTel label="TF2" value={row.TF2} disabled={!tf2} onClick={() => onCall('TF2')} onCopy={() => onCopy('TF2', row.TF2)} />
+              <MiniTel label="TF1" value={row.TF1} disabled={!tf1} onClick={function () { props.onCall('TF1'); }} onCopy={function () { props.onCopy('TF1', row.TF1); }} />
+              <MiniTel label="TF2" value={row.TF2} disabled={!tf2} onClick={function () { props.onCall('TF2'); }} onCopy={function () { props.onCopy('TF2', row.TF2); }} />
             </div>
 
-            <button style={styles.btn} onClick={onClose}>
+            <button style={styles.btn} onClick={props.onClose}>
               Fechar
             </button>
           </div>
@@ -1109,9 +1225,6 @@ function RowActionsModal({
   );
 }
 
-// =========================
-// MAIN PAGE
-// =========================
 function MiniAppTabela() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -1134,11 +1247,18 @@ function MiniAppTabela() {
   const [toast, setToast] = useState<string>('');
 
   const [dirty, setDirty] = useState<Record<string, DirtyRow>>({});
-  const dirtyCount = useMemo(() => Object.keys(dirty).length, [dirty]);
+  const dirtyCount = useMemo(function () {
+    return Object.keys(dirty).length;
+  }, [dirty]);
 
   const [actionsOpen, setActionsOpen] = useState(false);
   const [activeRowId, setActiveRowId] = useState<string>('');
-  const activeRow = useMemo(() => allRows.find((r) => r.id === activeRowId) || null, [allRows, activeRowId]);
+  const activeRow = useMemo(function () {
+    for (let i = 0; i < allRows.length; i++) {
+      if (allRows[i].id === activeRowId) return allRows[i];
+    }
+    return null;
+  }, [allRows, activeRowId]);
 
   const [retornoModalOpen, setRetornoModalOpen] = useState(false);
   const [retornoInitial, setRetornoInitial] = useState<string>('');
@@ -1146,36 +1266,36 @@ function MiniAppTabela() {
   const [outraCidadeModalOpen, setOutraCidadeModalOpen] = useState(false);
   const [outraCidadeInitial, setOutraCidadeInitial] = useState<string>('');
 
-  useEffect(() => {
+  useEffect(function () {
     const entregaId = getEntregaIdOnly();
     if (!entregaId) {
       setError('Sem entregaId na URL. Abra com: #/?entregaId=SEU_ID');
       return;
     }
 
-    (async () => {
+    (async function () {
       try {
         setLoading(true);
         setError('');
         setPayload(null);
 
-        const url = `${API_GET_ENTREGA}?entregasId=${encodeURIComponent(entregaId)}`;
+        const url = API_GET_ENTREGA + '?entregasId=' + encodeURIComponent(entregaId);
         const resp = await fetch(url, { cache: 'no-store' });
 
-        const raw = await resp.text().catch(() => '');
-        if (!resp.ok) throw new Error(`HTTP ${resp.status} • ${raw || 'Sem body'}`);
-        if (!raw.trim()) throw new Error('Servidor respondeu vazio (sem JSON).');
+        const raw = await resp.text().catch(function () { return ''; });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status + ' • ' + (raw || 'Sem body'));
+        if (!String(raw || '').trim()) throw new Error('Servidor respondeu vazio (sem JSON).');
 
         let data: any;
         try {
           data = JSON.parse(raw);
         } catch {
-          throw new Error(`Resposta não é JSON. Início: ${raw.slice(0, 300)}`);
+          throw new Error('Resposta não é JSON. Início: ' + raw.slice(0, 300));
         }
 
         setPayload(Array.isArray(data) ? data : [data]);
       } catch (e: any) {
-        setError(String(e?.message || e || 'Erro ao buscar payload'));
+        setError(String((e && e.message) || e || 'Erro ao buscar payload'));
         setPayload(null);
       } finally {
         setLoading(false);
@@ -1183,11 +1303,11 @@ function MiniAppTabela() {
     })();
   }, []);
 
-  useEffect(() => {
+  useEffect(function () {
     if (!payload || payload.length === 0) return;
 
     const item = payload[0] as PartePayload;
-    const csv = String(item?.csv || '');
+    const csv = String((item && item.csv) || '');
 
     if (!csv.trim()) {
       setAllRows([]);
@@ -1197,62 +1317,92 @@ function MiniAppTabela() {
 
     const rows = csvToRows(csv);
     setAllRows(rows);
-
     setDirty({});
     setPage(1);
     setError('');
   }, [payload]);
 
-  const geoCols = useMemo(() => {
-    const hasEstado = allRows.some((r) => String(r.ESTADO || '').trim().length > 0);
-    const hasCidade = allRows.some((r) => String(r.CIDADE || '').trim().length > 0);
-    const hasRegiao = allRows.some((r) => String(r.REGIAO_CIDADE || '').trim().length > 0);
+  const geoCols = useMemo(function () {
+    let hasEstado = false;
+    let hasCidade = false;
+    let hasRegiao = false;
+
+    for (let i = 0; i < allRows.length; i++) {
+      const r = allRows[i];
+      if (String(r.ESTADO || '').trim()) hasEstado = true;
+      if (String(r.CIDADE || '').trim()) hasCidade = true;
+      if (String(r.REGIAO_CIDADE || '').trim()) hasRegiao = true;
+    }
+
     return { estado: hasEstado, cidade: hasCidade, regiao: hasRegiao };
   }, [allRows]);
 
-  const estadosDisponiveis = useMemo(() => {
+  const estadosDisponiveis = useMemo(function () {
     if (!geoCols.estado) return [];
-    const s = new Set<string>();
-    for (const r of allRows) {
-      const v = String(r.ESTADO || '').trim();
-      if (v) s.add(v);
+    const s: Record<string, boolean> = {};
+    const arr: string[] = [];
+
+    for (let i = 0; i < allRows.length; i++) {
+      const v = String(allRows[i].ESTADO || '').trim();
+      if (v && !s[v]) {
+        s[v] = true;
+        arr.push(v);
+      }
     }
-    return Array.from(s).sort((a, b) => a.localeCompare(b));
+
+    arr.sort(function (a, b) { return a.localeCompare(b); });
+    return arr;
   }, [allRows, geoCols.estado]);
 
-  const cidadesDisponiveis = useMemo(() => {
+  const cidadesDisponiveis = useMemo(function () {
     if (!geoCols.cidade) return [];
-    const s = new Set<string>();
-    for (const r of allRows) {
-      const v = String(r.CIDADE || '').trim();
-      if (v) s.add(v);
+    const s: Record<string, boolean> = {};
+    const arr: string[] = [];
+
+    for (let i = 0; i < allRows.length; i++) {
+      const v = String(allRows[i].CIDADE || '').trim();
+      if (v && !s[v]) {
+        s[v] = true;
+        arr.push(v);
+      }
     }
-    return Array.from(s).sort((a, b) => a.localeCompare(b));
+
+    arr.sort(function (a, b) { return a.localeCompare(b); });
+    return arr;
   }, [allRows, geoCols.cidade]);
 
-  const regioesDisponiveis = useMemo(() => {
+  const regioesDisponiveis = useMemo(function () {
     if (!geoCols.regiao) return [];
-    const s = new Set<string>();
-    for (const r of allRows) {
-      const v = String(r.REGIAO_CIDADE || '').trim();
-      if (v) s.add(v);
+    const s: Record<string, boolean> = {};
+    const arr: string[] = [];
+
+    for (let i = 0; i < allRows.length; i++) {
+      const v = String(allRows[i].REGIAO_CIDADE || '').trim();
+      if (v && !s[v]) {
+        s[v] = true;
+        arr.push(v);
+      }
     }
-    return Array.from(s).sort((a, b) => a.localeCompare(b));
+
+    arr.sort(function (a, b) { return a.localeCompare(b); });
+    return arr;
   }, [allRows, geoCols.regiao]);
 
-  const filteredRows = useMemo(() => {
-    return allRows.filter((r) => {
+  const filteredRows = useMemo(function () {
+    return allRows.filter(function (r) {
       if (geoCols.estado && estadoFilter !== 'TODOS') {
-        const v = String(r.ESTADO || '').trim();
-        if (v !== estadoFilter) return false;
+        const vEstado = String(r.ESTADO || '').trim();
+        if (vEstado !== estadoFilter) return false;
       }
+
       if (geoCols.cidade && cidadeFilter !== 'TODAS') {
-        const v = String(r.CIDADE || '').trim();
-        if (v !== cidadeFilter) return false;
+        const vCidade = String(r.CIDADE || '').trim();
+        if (vCidade !== cidadeFilter) return false;
       }
+
       if (geoCols.regiao && regiaoFilter !== 'TODAS') {
-        const v = String(r.REGIAO_CIDADE || '').trim();
-        if (v !== regiaoFilter) return false;
+        const vRegiao = String(r.REGIAO_CIDADE || '').trim();
+        if (vRegiao !== regiaoFilter) return false;
       }
 
       if (statusFilter === 'PENDENTES') return r.STATUS === 'PENDENTE';
@@ -1262,16 +1412,23 @@ function MiniAppTabela() {
     });
   }, [allRows, statusFilter, estadoFilter, cidadeFilter, regiaoFilter, geoCols]);
 
-  useEffect(() => setPage(1), [statusFilter, estadoFilter, cidadeFilter, regiaoFilter]);
+  useEffect(function () {
+    setPage(1);
+  }, [statusFilter, estadoFilter, cidadeFilter, regiaoFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
-  const pageRows = useMemo(() => {
+
+  const pageRows = useMemo(function () {
     const from = (page - 1) * PAGE_SIZE;
     return filteredRows.slice(from, from + PAGE_SIZE);
   }, [filteredRows, page]);
 
   function updateRow(id: string, patch: Partial<Row>) {
-    setAllRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    setAllRows(function (prev) {
+      return prev.map(function (r) {
+        return r.id === id ? { ...r, ...patch } : r;
+      });
+    });
   }
 
   function markDirty(
@@ -1283,21 +1440,22 @@ function MiniAppTabela() {
       UPDATED_AT_MS?: number;
     }
   ) {
-    const nextStatus = patch.STATUS ?? row.STATUS;
-    const nextObs = patch.OBSERVACAO ?? row.OBSERVACAO ?? '';
-    const nextDtAlteracao = patch.DT_ALTERACAO ?? nowLocalStampPreciso();
-    const nextUpdatedAtMs = patch.UPDATED_AT_MS ?? Date.now();
+    const nextStatus = patch.STATUS || row.STATUS;
+    const nextObs = patch.OBSERVACAO != null ? patch.OBSERVACAO : row.OBSERVACAO || '';
+    const nextDtAlteracao = patch.DT_ALTERACAO || nowLocalStampPreciso();
+    const nextUpdatedAtMs = patch.UPDATED_AT_MS || Date.now();
 
-    setDirty((prev) => {
-      const current = prev[String(row.LINE)];
+    setDirty(function (prev) {
+      const lineKey = String(row.LINE);
+      const current = prev[lineKey];
 
-      if (current?.UPDATED_AT_MS && current.UPDATED_AT_MS > nextUpdatedAtMs) {
+      if (current && current.UPDATED_AT_MS && current.UPDATED_AT_MS > nextUpdatedAtMs) {
         return prev;
       }
 
       return {
         ...prev,
-        [String(row.LINE)]: {
+        [lineKey]: {
           STATUS: nextStatus,
           OBSERVACAO: nextObs,
           DT_ALTERACAO: nextDtAlteracao,
@@ -1306,7 +1464,7 @@ function MiniAppTabela() {
       };
     });
 
-    setSaveTick((x) => x + 1);
+    setSaveTick(function (x) { return x + 1; });
   }
 
   function applyRowChange(row: Row, nextStatus: Status, nextObs: string) {
@@ -1329,7 +1487,6 @@ function MiniAppTabela() {
 
   function toggleStatusForRow(row: Row, next: Exclude<Status, 'PENDENTE'>) {
     const newStatus: Status = row.STATUS === next ? 'PENDENTE' : next;
-
     let nextObs = row.OBSERVACAO;
 
     if (row.STATUS === 'RETORNO' && newStatus !== 'RETORNO') nextObs = '';
@@ -1363,13 +1520,12 @@ function MiniAppTabela() {
     }
 
     const cleaned = String(hhmm || '').trim();
-    if (!/^\d{1,2}:\d{2}$/.test(cleaned)) {
+    if (!/^\d{1,2}:\d{2}$/.test(cleaned) && !/^\d{2}:\d{2}$/.test(cleaned)) {
       window.alert('Selecione um horário válido.');
       return;
     }
 
     applyRowChange(row, 'RETORNO', cleaned);
-
     setRetornoModalOpen(false);
     setActionsOpen(false);
   }
@@ -1401,7 +1557,7 @@ function MiniAppTabela() {
   function callPhoneForRow(row: Row, which: 'TF1' | 'TF2') {
     const tel = telToDial(row[which]);
     if (!tel) return;
-    window.location.href = `tel:${tel}`;
+    window.location.href = 'tel:' + tel;
   }
 
   async function copyToClipboard(label: string, value: string) {
@@ -1409,36 +1565,52 @@ function MiniAppTabela() {
     if (!v) return;
 
     try {
-      await navigator.clipboard.writeText(v);
-      setToast(`${label} copiado: ${v}`);
-      setTimeout(() => setToast(''), 3000);
+      if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(v);
+      } else {
+        await fallbackCopyText(v);
+      }
+
+      setToast(label + ' copiado: ' + v);
+      setTimeout(function () { setToast(''); }, 3000);
     } catch {
-      setToast('Não foi possível copiar.');
-      setTimeout(() => setToast(''), 3000);
+      try {
+        await fallbackCopyText(v);
+        setToast(label + ' copiado: ' + v);
+      } catch {
+        setToast('Não foi possível copiar.');
+      }
+      setTimeout(function () { setToast(''); }, 3000);
     }
   }
 
-  useEffect(() => {
+  useEffect(function () {
     const entrega_id = getEntregaIdOnly();
     if (!entrega_id) return;
 
-    const entries = Object.entries(dirty);
-    if (!entries.length) return;
+    const keys = Object.keys(dirty);
+    if (!keys.length) return;
 
-    const t = setTimeout(async () => {
-      const changes = entries.map(([lineStr, v]) => {
+    const t = setTimeout(async function () {
+      const changes: any[] = [];
+
+      for (let i = 0; i < keys.length; i++) {
+        const lineStr = keys[i];
+        const v = dirty[lineStr];
+        if (!v) continue;
+
         const status = v.STATUS;
         const obsClean = obsToSave(status, v.OBSERVACAO || '');
 
-        return {
+        changes.push({
           LINE: Number(lineStr),
           STATUS: status,
           OBSERVACAO: obsClean,
           DT_ALTERACAO: v.DT_ALTERACAO,
           UPDATED_AT_MS: v.UPDATED_AT_MS,
           ts: new Date().toISOString(),
-        };
-      });
+        });
+      }
 
       try {
         setSaving(true);
@@ -1448,31 +1620,39 @@ function MiniAppTabela() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           cache: 'no-store',
-          body: JSON.stringify({ entrega_id, changes }),
+          body: JSON.stringify({ entrega_id: entrega_id, changes: changes }),
         });
 
-        const txt = await resp.text().catch(() => '');
-        if (!resp.ok) throw new Error(`HTTP ${resp.status} • ${txt || 'Sem body'}`);
+        const txt = await resp.text().catch(function () { return ''; });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status + ' • ' + (txt || 'Sem body'));
 
         setDirty({});
         setLastSavedAt(new Date().toLocaleTimeString());
       } catch (e: any) {
-        setSaveError(String(e?.message || e));
+        setSaveError(String((e && e.message) || e));
       } finally {
         setSaving(false);
       }
     }, 800);
 
-    return () => clearTimeout(t);
+    return function () {
+      clearTimeout(t);
+    };
   }, [saveTick, dirty]);
 
-  const pendentes = useMemo(() => filteredRows.filter((r) => r.STATUS === 'PENDENTE').length, [filteredRows]);
-  const tratados = useMemo(() => filteredRows.filter((r) => r.STATUS !== 'PENDENTE').length, [filteredRows]);
+  const pendentes = useMemo(function () {
+    return filteredRows.filter(function (r) { return r.STATUS === 'PENDENTE'; }).length;
+  }, [filteredRows]);
+
+  const tratados = useMemo(function () {
+    return filteredRows.filter(function (r) { return r.STATUS !== 'PENDENTE'; }).length;
+  }, [filteredRows]);
+
   const hasData = allRows.length > 0;
 
-  const hintLink = useMemo(() => {
-    const base = `${window.location.origin}${window.location.pathname}#/?`;
-    return `${base}entregaId=SEU_ENTREGA_ID`;
+  const hintLink = useMemo(function () {
+    const base = window.location.origin + window.location.pathname + '#/?';
+    return base + 'entregaId=SEU_ENTREGA_ID';
   }, []);
 
   function PaginationControls() {
@@ -1481,12 +1661,12 @@ function MiniAppTabela() {
         <div style={styles.pill}>
           Página <b>{page}</b>/<b>{Math.max(1, totalPages)}</b>
         </div>
-        <button style={styles.btn} onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+        <button style={styles.btn} onClick={function () { setPage(function (p) { return Math.max(1, p - 1); }); }} disabled={page <= 1}>
           ⬅️
         </button>
         <button
           style={{ ...styles.btn, ...styles.btnPrimary }}
-          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          onClick={function () { setPage(function (p) { return Math.min(totalPages, p + 1); }); }}
           disabled={page >= totalPages}
         >
           ➡️
@@ -1502,21 +1682,36 @@ function MiniAppTabela() {
       <RowActionsModal
         open={actionsOpen}
         row={activeRow}
-        onClose={() => setActionsOpen(false)}
-        onToggleStatus={(next) => activeRow && toggleStatusForRow(activeRow, next)}
-        onCall={(which) => activeRow && callPhoneForRow(activeRow, which)}
+        onClose={function () { setActionsOpen(false); }}
+        onToggleStatus={function (next) {
+          if (activeRow) toggleStatusForRow(activeRow, next);
+        }}
+        onCall={function (which) {
+          if (activeRow) callPhoneForRow(activeRow, which);
+        }}
         onCopy={copyToClipboard}
-        onOpenRetorno={() => activeRow && openRetornoPicker(activeRow)}
-        onOpenOutraCidade={() => activeRow && openOutraCidadePicker(activeRow)}
-        onSetNaoPodeFazerPesquisa={() => activeRow && setNaoPodeFazerPesquisaForRow(activeRow)}
+        onOpenRetorno={function () {
+          if (activeRow) openRetornoPicker(activeRow);
+        }}
+        onOpenOutraCidade={function () {
+          if (activeRow) openOutraCidadePicker(activeRow);
+        }}
+        onSetNaoPodeFazerPesquisa={function () {
+          if (activeRow) setNaoPodeFazerPesquisaForRow(activeRow);
+        }}
       />
 
-      <RetornoModal open={retornoModalOpen} initialValue={retornoInitial} onCancel={() => setRetornoModalOpen(false)} onConfirm={confirmRetorno} />
+      <RetornoModal
+        open={retornoModalOpen}
+        initialValue={retornoInitial}
+        onCancel={function () { setRetornoModalOpen(false); }}
+        onConfirm={confirmRetorno}
+      />
 
       <OutraCidadeModal
         open={outraCidadeModalOpen}
         initialValue={outraCidadeInitial}
-        onCancel={() => setOutraCidadeModalOpen(false)}
+        onCancel={function () { setOutraCidadeModalOpen(false); }}
         onConfirm={confirmOutraCidade}
       />
 
@@ -1566,26 +1761,26 @@ function MiniAppTabela() {
 
               <div style={{ ...styles.sub, marginTop: 6 }}>
                 Salvando: <b style={{ color: saving ? 'var(--warning)' : 'var(--text-muted)' }}>{saving ? 'SIM' : 'NÃO'}</b>
-                {lastSavedAt && (
+                {lastSavedAt ? (
                   <span style={{ marginLeft: 10 }}>
                     Último: <b>{lastSavedAt}</b>
                   </span>
-                )}
+                ) : null}
               </div>
 
               <div style={{ ...styles.sub, marginTop: 6 }}>
                 Alterações pendentes: <b style={{ color: dirtyCount ? 'var(--warning)' : 'var(--text-muted)' }}>{dirtyCount}</b>
               </div>
 
-              {saveError && (
+              {saveError ? (
                 <div style={{ marginTop: 8, padding: 10, border: '1px solid var(--danger)', borderRadius: 10, fontSize: 12 }}>
                   ❌ {saveError}
                 </div>
-              )}
+              ) : null}
             </div>
 
             <div style={styles.filtersRow}>
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} style={styles.select}>
+              <select value={statusFilter} onChange={function (e) { setStatusFilter(e.target.value as StatusFilter); }} style={styles.select}>
                 <option value="TODOS">Status: Todos</option>
                 <option value="PENDENTES">Status: Pendentes</option>
                 <option value="PESQUISA_FEITA">Status: Pesquisa Feita</option>
@@ -1599,41 +1794,47 @@ function MiniAppTabela() {
               </select>
 
               {geoCols.estado ? (
-                <select value={estadoFilter} onChange={(e) => setEstadoFilter(e.target.value)} style={styles.select}>
+                <select value={estadoFilter} onChange={function (e) { setEstadoFilter(e.target.value); }} style={styles.select}>
                   <option value="TODOS">Estado: Todos</option>
-                  {estadosDisponiveis.map((uf) => (
-                    <option key={uf} value={uf}>
-                      Estado: {uf}
-                    </option>
-                  ))}
+                  {estadosDisponiveis.map(function (uf) {
+                    return (
+                      <option key={uf} value={uf}>
+                        Estado: {uf}
+                      </option>
+                    );
+                  })}
                 </select>
               ) : null}
 
               {geoCols.cidade ? (
-                <select value={cidadeFilter} onChange={(e) => setCidadeFilter(e.target.value)} style={styles.select}>
+                <select value={cidadeFilter} onChange={function (e) { setCidadeFilter(e.target.value); }} style={styles.select}>
                   <option value="TODAS">Cidade: Todas</option>
-                  {cidadesDisponiveis.map((c) => (
-                    <option key={c} value={c}>
-                      Cidade: {c}
-                    </option>
-                  ))}
+                  {cidadesDisponiveis.map(function (c) {
+                    return (
+                      <option key={c} value={c}>
+                        Cidade: {c}
+                      </option>
+                    );
+                  })}
                 </select>
               ) : null}
 
               {geoCols.regiao ? (
-                <select value={regiaoFilter} onChange={(e) => setRegiaoFilter(e.target.value)} style={styles.select}>
+                <select value={regiaoFilter} onChange={function (e) { setRegiaoFilter(e.target.value); }} style={styles.select}>
                   <option value="TODAS">Região: Todas</option>
-                  {regioesDisponiveis.map((rg) => (
-                    <option key={rg} value={rg}>
-                      Região: {rg}
-                    </option>
-                  ))}
+                  {regioesDisponiveis.map(function (rg) {
+                    return (
+                      <option key={rg} value={rg}>
+                        Região: {rg}
+                      </option>
+                    );
+                  })}
                 </select>
               ) : null}
 
               <button
                 style={styles.btn}
-                onClick={() => {
+                onClick={function () {
                   setStatusFilter('TODOS');
                   setEstadoFilter('TODOS');
                   setCidadeFilter('TODAS');
@@ -1661,39 +1862,37 @@ function MiniAppTabela() {
                   <tr>
                     <th style={styles.th}>STATUS</th>
                     <th style={styles.th}>IDP</th>
-
                     {geoCols.estado ? <th style={styles.th}>ESTADO</th> : null}
                     {geoCols.cidade ? <th style={styles.th}>CIDADE</th> : null}
                     {geoCols.regiao ? <th style={styles.th}>REGIÃO</th> : null}
-
                     <th style={styles.th}>TF1</th>
                     <th style={styles.th}>TF2</th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {pageRows.map((r) => {
+                  {pageRows.map(function (r) {
                     const baseBg = rowBg(r.STATUS);
-
                     const isSelected = actionsOpen && activeRowId === r.id;
+
                     const selectedBg =
                       r.STATUS === 'OUTRA_CIDADE'
                         ? 'rgba(249,115,22,.42)'
                         : r.STATUS === 'NAO_PODE_FAZER_PESQUISA'
-                          ? 'rgba(15,118,110,.34)'
-                          : r.STATUS === 'RETORNO'
-                            ? 'rgba(30,58,138,.36)'
-                            : r.STATUS === 'PESQUISA_FEITA'
-                              ? 'rgba(22,163,74,.34)'
-                              : r.STATUS === 'NUMERO_NAO_EXISTE'
-                                ? 'rgba(239,68,68,.34)'
-                                : r.STATUS === 'RECUSA'
-                                  ? 'rgba(190,24,93,.28)'
-                                  : r.STATUS === 'NAO_ATENDEU' || r.STATUS === 'CAIXA_POSTAL'
-                                    ? 'rgba(245,158,11,.40)'
-                                    : r.STATUS === 'REMOVER_DA_LISTA'
-                                      ? 'rgba(124,58,237,.30)'
-                                      : 'rgba(0,0,0,.08)';
+                        ? 'rgba(15,118,110,.34)'
+                        : r.STATUS === 'RETORNO'
+                        ? 'rgba(30,58,138,.36)'
+                        : r.STATUS === 'PESQUISA_FEITA'
+                        ? 'rgba(22,163,74,.34)'
+                        : r.STATUS === 'NUMERO_NAO_EXISTE'
+                        ? 'rgba(239,68,68,.34)'
+                        : r.STATUS === 'RECUSA'
+                        ? 'rgba(190,24,93,.28)'
+                        : r.STATUS === 'NAO_ATENDEU' || r.STATUS === 'CAIXA_POSTAL'
+                        ? 'rgba(245,158,11,.40)'
+                        : r.STATUS === 'REMOVER_DA_LISTA'
+                        ? 'rgba(124,58,237,.30)'
+                        : 'rgba(0,0,0,.08)';
 
                     return (
                       <tr
@@ -1703,7 +1902,7 @@ function MiniAppTabela() {
                           background: isSelected ? selectedBg : baseBg,
                           outline: isSelected ? '3px solid rgba(0,0,0,.14)' : '2px solid transparent',
                         }}
-                        onClick={() => openRowActions(r)}
+                        onClick={function () { openRowActions(r); }}
                       >
                         <td style={styles.td}>
                           <StatusPill row={r} />
@@ -1727,7 +1926,12 @@ function MiniAppTabela() {
                     <tr>
                       <td
                         colSpan={2 + (geoCols.estado ? 1 : 0) + (geoCols.cidade ? 1 : 0) + (geoCols.regiao ? 1 : 0) + 2}
-                        style={{ padding: 14, color: 'var(--text-muted)', fontSize: 13, background: 'var(--surface)' }}
+                        style={{
+                          padding: 14,
+                          color: 'var(--text-muted)',
+                          fontSize: 13,
+                          background: 'var(--surface)',
+                        }}
                       >
                         Nenhum registro encontrado com esses filtros.
                       </td>
@@ -1751,23 +1955,19 @@ function MiniAppTabela() {
   );
 }
 
-// =========================
-// APP ROOT
-// =========================
 export function App() {
   return (
-    <HashRouter>
-      <Routes>
-        <Route path="/" element={<MiniAppTabela />} />
-        <Route path="*" element={<Navigate to="/" />} />
-      </Routes>
-    </HashRouter>
+    <AppErrorBoundary>
+      <HashRouter>
+        <Routes>
+          <Route path="/" element={<MiniAppTabela />} />
+          <Route path="*" element={<Navigate to="/" />} />
+        </Routes>
+      </HashRouter>
+    </AppErrorBoundary>
   );
 }
 
-// =========================
-// STYLES
-// =========================
 const styles: Record<string, React.CSSProperties> = {
   topbarLocal: {
     background: 'var(--surfaceMuted)',
