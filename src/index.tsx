@@ -14,7 +14,12 @@ if (!rootElement) {
 
 const root = ReactDOM.createRoot(rootElement);
 
-function BootScreen(message: string, error?: any) {
+type BootScreenProps = {
+  message: string;
+  error?: any;
+};
+
+function BootScreen(props: BootScreenProps) {
   return (
     <div
       style={{
@@ -22,9 +27,9 @@ function BootScreen(message: string, error?: any) {
         padding: 20,
       }}
     >
-      <h2>{message}</h2>
+      <h2>{props.message}</h2>
 
-      {error ? (
+      {props.error ? (
         <pre
           style={{
             background: '#eee',
@@ -34,26 +39,32 @@ function BootScreen(message: string, error?: any) {
             wordBreak: 'break-word',
           }}
         >
-          {String((error && (error.stack || error.message)) || error)}
+          {String((props.error && (props.error.stack || props.error.message)) || props.error)}
         </pre>
       ) : null}
     </div>
   );
 }
 
-root.render(BootScreen('Inicializando Mini App...'));
+root.render(<BootScreen message="Passo 1: index carregou" />);
 
 async function bootstrap() {
   try {
-    const { retrieveLaunchParams } = await import('@tma.js/sdk-react');
+    root.render(<BootScreen message="Passo 2: importando sdk..." />);
+
+    const sdk = await import('@tma.js/sdk-react');
+
+    root.render(<BootScreen message="Passo 3: lendo launch params..." />);
 
     let launchParams: any = null;
 
     try {
-      launchParams = retrieveLaunchParams();
+      launchParams = sdk.retrieveLaunchParams();
     } catch (e) {
-      console.warn('Não foi possível obter launchParams do Telegram.', e);
+      console.warn('Falha ao ler launch params', e);
     }
+
+    root.render(<BootScreen message="Passo 4: rodando init..." />);
 
     const platform = launchParams?.tgWebAppPlatform;
     const debug = (launchParams?.tgWebAppStartParam || '').indexOf('debug') >= 0;
@@ -64,11 +75,16 @@ async function bootstrap() {
       mockForMacOS: platform === 'macos',
     });
 
+    root.render(<BootScreen message="Passo 5: renderizando Root..." />);
+
     root.render(<Root />);
   } catch (e) {
-    console.error('Erro no bootstrap:', e);
-    root.render(<EnvUnsupported />);
+    console.error('Erro real do bootstrap:', e);
+    root.render(<BootScreen message="Erro no bootstrap" error={e} />);
   }
 }
 
-bootstrap();
+bootstrap().catch(function (e) {
+  console.error('Erro fatal no bootstrap:', e);
+  root.render(<EnvUnsupported />);
+});
