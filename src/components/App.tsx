@@ -53,57 +53,62 @@ type IbgeMunicipio = {
   };
 };
 
+type SimpleResponse = {
+  ok: boolean;
+  status: number;
+  text: () => Promise<string>;
+};
+
 const PAGE_SIZE = 20;
 
 const API_GET_ENTREGA = 'https://n8n.srv962474.hstgr.cloud/webhook/entregas';
 const API_SAVE_PARTE = 'https://n8n.srv962474.hstgr.cloud/webhook/parte/salvar';
 const IBGE_MUNICIPIOS_API = 'https://servicodados.ibge.gov.br/api/v1/localidades/municipios';
 
+const COLORS = {
+  bg: '#FFFFFF',
+  surface: '#FFFFFF',
+  surface2: '#FFFFFF',
+  surfaceMuted: '#F3F4F6',
+  text: '#000000',
+  textMuted: '#374151',
+  border: '#D1D5DB',
+
+  primary: '#000000',
+  primaryText: '#FFFFFF',
+  secondary: '#FFFFFF',
+  secondaryText: '#000000',
+
+  success: '#16A34A',
+  warning: '#F59E0B',
+  danger: '#EF4444',
+  orange: '#F97316',
+  blueDark: '#1E3A8A',
+  blueLight: '#38BDF8',
+  purple: '#7C3AED',
+  teal: '#0F766E',
+  pink: '#BE185D',
+
+  shadow: '0 10px 30px rgba(0,0,0,.10)',
+  radius: 15,
+};
+
 const globalCss = `
-:root{
-  --bg: #FFFFFF;
-  --surface: #FFFFFF;
-  --surface-2: #FFFFFF;
-  --surfaceMuted: #F3F4F6;
-  --text: #000000;
-  --text-muted: #374151;
-  --border: #D1D5DB;
-
-  --primary: #000000;
-  --primary-text: #FFFFFF;
-
-  --secondary: #FFFFFF;
-  --secondary-text: #000000;
-
-  --success: #16A34A;
-  --warning: #F59E0B;
-  --danger:  #EF4444;
-  --orange:  #F97316;
-
-  --blueDark: #1E3A8A;
-  --blueLight: #38BDF8;
-
-  --purple: #7C3AED;
-  --teal: #0F766E;
-  --pink: #BE185D;
-
-  --shadow: 0 10px 30px rgba(0,0,0,.10);
-  --radius: 15px;
-}
-
 html, body, #root {
   height: 100%;
 }
-
 body{
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background: linear-gradient(135deg, #FFFFFF 0%, #F3F4F6 100%);
+  background: #F3F4F6;
   margin: 0;
   padding: 0;
-  color: var(--text);
+  color: #000000;
 }
 *{ box-sizing: border-box; }
 button:disabled{ opacity: .55; cursor: not-allowed !important; }
+input, select, button, textarea{
+  font-family: inherit;
+}
 `;
 
 function zeroPad(value: number | string, size: number) {
@@ -111,7 +116,7 @@ function zeroPad(value: number | string, size: number) {
   if ((text as any).padStart) {
     return text.padStart(size, '0');
   }
-  const zeros = '0000000000';
+  const zeros = '00000000000000000000';
   return (zeros + text).slice(-size);
 }
 
@@ -308,6 +313,15 @@ function outraCidadeLabel(obs: string) {
   return t ? 'MORA/VOTA EM OUTRA CIDADE • ' + t : 'MORA/VOTA EM OUTRA CIDADE';
 }
 
+function retornoLabelFromObs(obs: string) {
+  const t = String(obs || '').trim();
+
+  if (/^\d{1,2}:\d{2}$/.test(t)) return t;
+
+  const m = t.match(/RETORNO\s*[-–—]?\s*(\d{1,2}:\d{2})/i);
+  return m && m[1] ? m[1] : '';
+}
+
 function obsToSave(status: Status, obs: string) {
   const t = String(obs || '').trim();
 
@@ -478,15 +492,6 @@ function csvToRows(csv: string): Row[] {
   return out;
 }
 
-function retornoLabelFromObs(obs: string) {
-  const t = String(obs || '').trim();
-
-  if (/^\d{1,2}:\d{2}$/.test(t)) return t;
-
-  const m = t.match(/RETORNO\s*[-–—]?\s*(\d{1,2}:\d{2})/i);
-  return m && m[1] ? m[1] : '';
-}
-
 function statusText(row: Row) {
   const s = row.STATUS;
 
@@ -513,24 +518,24 @@ function statusText(row: Row) {
 function statusVars(s: Status) {
   switch (s) {
     case 'PESQUISA_FEITA':
-      return { bd: 'var(--success)', bg: 'rgba(22,163,74,.32)' };
+      return { bd: COLORS.success, bg: 'rgba(22,163,74,.32)' };
     case 'OUTRA_CIDADE':
-      return { bd: 'var(--orange)', bg: 'rgba(249,115,22,.34)' };
+      return { bd: COLORS.orange, bg: 'rgba(249,115,22,.34)' };
     case 'NAO_PODE_FAZER_PESQUISA':
-      return { bd: 'var(--teal)', bg: 'rgba(15,118,110,.28)' };
+      return { bd: COLORS.teal, bg: 'rgba(15,118,110,.28)' };
     case 'RETORNO':
-      return { bd: 'var(--blueDark)', bg: 'rgba(30,58,138,.30)' };
+      return { bd: COLORS.blueDark, bg: 'rgba(30,58,138,.30)' };
     case 'NUMERO_NAO_EXISTE':
-      return { bd: 'var(--danger)', bg: 'rgba(239,68,68,.34)' };
+      return { bd: COLORS.danger, bg: 'rgba(239,68,68,.34)' };
     case 'RECUSA':
-      return { bd: 'var(--pink)', bg: 'rgba(190,24,93,.22)' };
+      return { bd: COLORS.pink, bg: 'rgba(190,24,93,.22)' };
     case 'NAO_ATENDEU':
     case 'CAIXA_POSTAL':
-      return { bd: 'var(--warning)', bg: 'rgba(245,158,11,.34)' };
+      return { bd: COLORS.warning, bg: 'rgba(245,158,11,.34)' };
     case 'REMOVER_DA_LISTA':
-      return { bd: 'var(--purple)', bg: 'rgba(124,58,237,.24)' };
+      return { bd: COLORS.purple, bg: 'rgba(124,58,237,.24)' };
     default:
-      return { bd: 'var(--border)', bg: 'rgba(0,0,0,.06)' };
+      return { bd: COLORS.border, bg: 'rgba(0,0,0,.06)' };
   }
 }
 
@@ -574,6 +579,95 @@ function cityLabel(nome: string, estadoNome: string) {
   const e = String(estadoNome || '').trim();
   if (!n) return '';
   return e ? n + '/' + e : n;
+}
+
+function getLocationOriginSafe() {
+  try {
+    if (window.location.origin) return window.location.origin;
+  } catch {}
+
+  try {
+    return window.location.protocol + '//' + window.location.host;
+  } catch {}
+
+  return '';
+}
+
+function supportsFetch() {
+  try {
+    return typeof fetch !== 'undefined';
+  } catch {
+    return false;
+  }
+}
+
+function xhrRequest(url: string, options?: { method?: string; headers?: Record<string, string>; body?: string }) {
+  return new Promise<SimpleResponse>(function (resolve, reject) {
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open(options && options.method ? options.method : 'GET', url, true);
+
+      const headers = (options && options.headers) || {};
+      const keys = Object.keys(headers);
+      for (let i = 0; i < keys.length; i++) {
+        xhr.setRequestHeader(keys[i], headers[keys[i]]);
+      }
+
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState !== 4) return;
+
+        const responseText = xhr.responseText || '';
+        resolve({
+          ok: xhr.status >= 200 && xhr.status < 300,
+          status: xhr.status,
+          text: function () {
+            return Promise.resolve(responseText);
+          },
+        });
+      };
+
+      xhr.onerror = function () {
+        reject(new Error('Falha de rede'));
+      };
+
+      xhr.send(options && options.body ? options.body : null);
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+function requestText(url: string, options?: { method?: string; headers?: Record<string, string>; body?: string }) {
+  if (supportsFetch()) {
+    return fetch(url, {
+      method: options && options.method ? options.method : 'GET',
+      headers: options && options.headers ? options.headers : undefined,
+      body: options && options.body ? options.body : undefined,
+      cache: 'no-store',
+    }).then(function (resp) {
+      return {
+        ok: resp.ok,
+        status: resp.status,
+        text: function () {
+          return resp.text();
+        },
+      } as SimpleResponse;
+    });
+  }
+
+  return xhrRequest(url, options);
+}
+
+function validateHHMM(value: string) {
+  const cleaned = String(value || '').trim();
+  if (!/^\d{1,2}:\d{2}$/.test(cleaned)) return '';
+  const parts = cleaned.split(':');
+  const hh = Number(parts[0]);
+  const mm = Number(parts[1]);
+  if (isNaN(hh) || isNaN(mm)) return '';
+  if (hh < 0 || hh > 23) return '';
+  if (mm < 0 || mm > 59) return '';
+  return zeroPad(hh, 2) + ':' + zeroPad(mm, 2);
 }
 
 async function fallbackCopyText(text: string) {
@@ -632,7 +726,7 @@ class AppErrorBoundary extends React.Component<
           <div style={styles.card}>
             <div style={{ padding: 16 }}>
               <div style={{ fontWeight: 900, fontSize: 16 }}>⚠️ Erro no Mini App</div>
-              <div style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: 13 }}>
+              <div style={{ marginTop: 8, color: COLORS.textMuted, fontSize: 13 }}>
                 O aplicativo encontrou um erro de compatibilidade ou execução.
               </div>
               <pre
@@ -640,8 +734,8 @@ class AppErrorBoundary extends React.Component<
                   marginTop: 12,
                   padding: 12,
                   borderRadius: 10,
-                  background: 'var(--surfaceMuted)',
-                  border: '1px solid var(--border)',
+                  background: COLORS.surfaceMuted,
+                  border: '1px solid ' + COLORS.border,
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
                   fontSize: 12,
@@ -664,16 +758,14 @@ function StatusPill(props: { row: Row }) {
   return (
     <span
       style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
+        display: 'inline-block',
         padding: '4px 9px',
         borderRadius: 999,
         border: '2px solid ' + c.bd,
         background: c.bg,
         fontWeight: 900,
         fontSize: 11,
-        color: 'var(--text)',
+        color: COLORS.text,
         whiteSpace: 'nowrap',
       }}
     >
@@ -692,22 +784,22 @@ function ActionButton(props: {
 
   const base =
     kind === 'danger'
-      ? { border: '2px solid rgba(239,68,68,.70)', background: 'rgba(239,68,68,.28)', color: 'var(--text)' }
+      ? { border: '2px solid rgba(239,68,68,.70)', background: 'rgba(239,68,68,.28)', color: COLORS.text }
       : kind === 'orange'
-      ? { border: '2px solid rgba(249,115,22,.70)', background: 'rgba(249,115,22,.28)', color: 'var(--text)' }
+      ? { border: '2px solid rgba(249,115,22,.70)', background: 'rgba(249,115,22,.28)', color: COLORS.text }
       : kind === 'warning'
-      ? { border: '2px solid rgba(245,158,11,.70)', background: 'rgba(245,158,11,.28)', color: 'var(--text)' }
+      ? { border: '2px solid rgba(245,158,11,.70)', background: 'rgba(245,158,11,.28)', color: COLORS.text }
       : kind === 'blueDark'
-      ? { border: '2px solid rgba(30,58,138,.65)', background: 'rgba(30,58,138,.24)', color: 'var(--text)' }
+      ? { border: '2px solid rgba(30,58,138,.65)', background: 'rgba(30,58,138,.24)', color: COLORS.text }
       : kind === 'blueLight'
-      ? { border: '2px solid rgba(56,189,248,.65)', background: 'rgba(56,189,248,.22)', color: 'var(--text)' }
+      ? { border: '2px solid rgba(56,189,248,.65)', background: 'rgba(56,189,248,.22)', color: COLORS.text }
       : kind === 'purple'
-      ? { border: '2px solid rgba(124,58,237,.65)', background: 'rgba(124,58,237,.22)', color: 'var(--text)' }
+      ? { border: '2px solid rgba(124,58,237,.65)', background: 'rgba(124,58,237,.22)', color: COLORS.text }
       : kind === 'teal'
-      ? { border: '2px solid rgba(15,118,110,.65)', background: 'rgba(15,118,110,.18)', color: 'var(--text)' }
+      ? { border: '2px solid rgba(15,118,110,.65)', background: 'rgba(15,118,110,.18)', color: COLORS.text }
       : kind === 'pink'
-      ? { border: '2px solid rgba(190,24,93,.65)', background: 'rgba(190,24,93,.16)', color: 'var(--text)' }
-      : { border: '2px solid rgba(22,163,74,.65)', background: 'rgba(22,163,74,.24)', color: 'var(--text)' };
+      ? { border: '2px solid rgba(190,24,93,.65)', background: 'rgba(190,24,93,.16)', color: COLORS.text }
+      : { border: '2px solid rgba(22,163,74,.65)', background: 'rgba(22,163,74,.24)', color: COLORS.text };
 
   return (
     <button
@@ -716,6 +808,8 @@ function ActionButton(props: {
         ...styles.btnAction,
         ...base,
         ...(props.active ? styles.btnActive : {}),
+        marginRight: 8,
+        marginBottom: 8,
       }}
     >
       {props.children}
@@ -733,22 +827,23 @@ function MiniTel(props: {
   const enabled = !props.disabled;
 
   return (
-    <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+    <div style={{ display: 'inline-block', marginRight: 8, marginBottom: 8 }}>
       <button
         disabled={!enabled}
         onClick={props.onClick}
         style={{
           ...styles.btn,
           ...styles.btnPrimary,
-          background: enabled ? 'var(--primary)' : 'var(--surfaceMuted)',
-          color: enabled ? 'var(--primary-text)' : 'var(--text-muted)',
-          borderColor: 'var(--border)',
+          background: enabled ? COLORS.primary : COLORS.surfaceMuted,
+          color: enabled ? COLORS.primaryText : COLORS.textMuted,
+          borderColor: COLORS.border,
           padding: '9px 12px',
           borderRadius: 10,
           fontSize: 12,
           fontWeight: 900,
           cursor: enabled ? 'pointer' : 'not-allowed',
           whiteSpace: 'nowrap',
+          marginRight: 8,
         }}
         title={props.value || ''}
       >
@@ -761,9 +856,9 @@ function MiniTel(props: {
         style={{
           ...styles.btn,
           ...styles.btnPrimary,
-          background: props.value ? 'var(--primary)' : 'var(--surfaceMuted)',
-          color: props.value ? 'var(--primary-text)' : 'var(--text-muted)',
-          borderColor: 'var(--border)',
+          background: props.value ? COLORS.primary : COLORS.surfaceMuted,
+          color: props.value ? COLORS.primaryText : COLORS.textMuted,
+          borderColor: COLORS.border,
           padding: '9px 12px',
           borderRadius: 10,
           fontSize: 12,
@@ -795,18 +890,26 @@ function RetornoModal(props: {
 
   return (
     <div onClick={props.onCancel} style={stylesModal.overlay}>
-      <div onClick={function (e) { e.stopPropagation(); }} style={stylesModal.box}>
+      <div
+        onClick={function (e) {
+          e.stopPropagation();
+        }}
+        style={stylesModal.box}
+      >
         <div style={stylesModal.header}>
           <div style={stylesModal.title}>⏰ Agendar retorno</div>
-          <div style={stylesModal.sub}>Selecione a hora e o minuto</div>
+          <div style={stylesModal.sub}>Digite no formato HH:MM</div>
         </div>
 
         <div style={{ padding: 12 }}>
           <input
-            type="time"
-            step={60}
+            type="text"
+            inputMode="numeric"
             value={value}
-            onChange={function (e) { setValue(e.target.value); }}
+            onChange={function (e) {
+              setValue(e.target.value);
+            }}
+            placeholder="Ex: 14:30"
             style={stylesModal.input}
           />
 
@@ -817,9 +920,9 @@ function RetornoModal(props: {
             <button
               style={{ ...styles.btn, ...styles.btnPrimary }}
               onClick={function () {
-                const cleaned = String(value || '').trim();
-                if (!cleaned || !/^\d{2}:\d{2}$/.test(cleaned)) {
-                  window.alert('Selecione um horário válido.');
+                const cleaned = validateHHMM(value);
+                if (!cleaned) {
+                  window.alert('Digite um horário válido no formato HH:MM.');
                   return;
                 }
                 props.onConfirm(cleaned);
@@ -860,8 +963,10 @@ function OutraCidadeModal(props: {
         setLoading(true);
         setLoadErr('');
 
-        const resp = await fetch(IBGE_MUNICIPIOS_API, { cache: 'force-cache' });
-        const raw = await resp.text().catch(function () { return ''; });
+        const resp = await requestText(IBGE_MUNICIPIOS_API);
+        const raw = await resp.text().catch(function () {
+          return '';
+        });
 
         if (!resp.ok) throw new Error('HTTP ' + resp.status + ' • ' + (raw || 'Sem body'));
 
@@ -947,7 +1052,12 @@ function OutraCidadeModal(props: {
 
   return (
     <div onClick={props.onCancel} style={stylesModal.overlay}>
-      <div onClick={function (e) { e.stopPropagation(); }} style={{ ...stylesModal.box, width: 'min(560px, 96vw)' }}>
+      <div
+        onClick={function (e) {
+          e.stopPropagation();
+        }}
+        style={{ ...stylesModal.boxLarge }}
+      >
         <div style={stylesModal.header}>
           <div style={stylesModal.title}>Mora/Vota em outra cidade</div>
           <div style={stylesModal.sub}>Digite o começo do nome da cidade ou escolha NQ Responder</div>
@@ -959,7 +1069,7 @@ function OutraCidadeModal(props: {
               style={{
                 marginBottom: 10,
                 padding: 10,
-                border: '1px solid var(--danger)',
+                border: '1px solid ' + COLORS.danger,
                 borderRadius: 10,
                 fontSize: 12,
               }}
@@ -975,13 +1085,13 @@ function OutraCidadeModal(props: {
               setQuery(v);
               setSelected(v);
             }}
-            placeholder={loading ? 'Carregando lista do IBGE…' : 'Digite a cidade (ex: Santos, São Paulo, Mauá)'}
+            placeholder={loading ? 'Carregando lista do IBGE...' : 'Digite a cidade (ex: Santos, São Paulo, Mauá)'}
             style={stylesModal.textInput}
             disabled={loading || !!loadErr}
             autoFocus
           />
 
-          <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ marginTop: 10 }}>
             <button
               type="button"
               onClick={function () {
@@ -990,7 +1100,7 @@ function OutraCidadeModal(props: {
               }}
               style={{
                 ...styles.btn,
-                background: selected === 'NQ_RESPONDER' ? 'rgba(249,115,22,.14)' : 'var(--surface)',
+                background: selected === 'NQ_RESPONDER' ? 'rgba(249,115,22,.14)' : COLORS.surface,
               }}
             >
               NQ Responder
@@ -1000,15 +1110,15 @@ function OutraCidadeModal(props: {
           <div
             style={{
               marginTop: 10,
-              border: '1px solid var(--border)',
+              border: '1px solid ' + COLORS.border,
               borderRadius: 12,
-              background: 'var(--surface)',
+              background: COLORS.surface,
               maxHeight: 260,
               overflowY: 'auto',
             }}
           >
             {loading ? (
-              <div style={{ padding: 12, fontSize: 13, color: 'var(--text-muted)' }}>Carregando cidades…</div>
+              <div style={{ padding: 12, fontSize: 13, color: COLORS.textMuted }}>Carregando cidades...</div>
             ) : options.length ? (
               options.map(function (c) {
                 const active = selected === c.label;
@@ -1025,9 +1135,9 @@ function OutraCidadeModal(props: {
                       textAlign: 'left',
                       padding: '10px 12px',
                       border: 'none',
-                      borderBottom: '1px solid var(--border)',
-                      background: active ? 'rgba(249,115,22,.14)' : 'var(--surface)',
-                      color: 'var(--text)',
+                      borderBottom: '1px solid ' + COLORS.border,
+                      background: active ? 'rgba(249,115,22,.14)' : COLORS.surface,
+                      color: COLORS.text,
                       cursor: 'pointer',
                       fontSize: 13,
                       fontWeight: active ? 900 : 700,
@@ -1038,14 +1148,16 @@ function OutraCidadeModal(props: {
                 );
               })
             ) : (
-              <div style={{ padding: 12, fontSize: 13, color: 'var(--text-muted)' }}>
-                Nenhuma cidade encontrada.
-              </div>
+              <div style={{ padding: 12, fontSize: 13, color: COLORS.textMuted }}>Nenhuma cidade encontrada.</div>
             )}
           </div>
 
-          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-            {loading ? 'Carregando…' : all.length ? 'Total de cidades: ' + all.length + ' • Mostrando até ' + options.length : '—'}
+          <div style={{ marginTop: 8, fontSize: 12, color: COLORS.textMuted }}>
+            {loading
+              ? 'Carregando...'
+              : all.length
+              ? 'Total de cidades: ' + all.length + ' • Mostrando até ' + options.length
+              : '—'}
           </div>
 
           <div style={stylesModal.rowBtns}>
@@ -1099,7 +1211,12 @@ function RowActionsModal(props: {
 
   return (
     <div onClick={props.onClose} style={stylesModal.overlay}>
-      <div onClick={function (e) { e.stopPropagation(); }} style={{ ...stylesModal.box, width: 'min(760px, 96vw)' }}>
+      <div
+        onClick={function (e) {
+          e.stopPropagation();
+        }}
+        style={stylesModal.boxXLarge}
+      >
         <div style={stylesModal.header}>
           <div style={stylesModal.title}>Ações • IDP {row.IDP}</div>
           <div style={stylesModal.sub}>
@@ -1107,7 +1224,7 @@ function RowActionsModal(props: {
           </div>
         </div>
 
-        <div style={{ padding: 12, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ padding: 12 }}>
           <ActionButton
             active={row.STATUS === 'PESQUISA_FEITA'}
             kind="success"
@@ -1200,24 +1317,46 @@ function RowActionsModal(props: {
           </ActionButton>
         </div>
 
-        <div style={{ padding: 12, borderTop: '1px solid var(--border)', background: 'var(--surfaceMuted)' }}>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
-                style={{ ...styles.btn, ...styles.btnPrimary }}
-                onClick={function () { props.onCopy('IDP', row.IDP); }}
-                title="Copiar IDP"
-              >
-                Copiar IDP 📋
-              </button>
-
-              <MiniTel label="TF1" value={row.TF1} disabled={!tf1} onClick={function () { props.onCall('TF1'); }} onCopy={function () { props.onCopy('TF1', row.TF1); }} />
-              <MiniTel label="TF2" value={row.TF2} disabled={!tf2} onClick={function () { props.onCall('TF2'); }} onCopy={function () { props.onCopy('TF2', row.TF2); }} />
-            </div>
-
-            <button style={styles.btn} onClick={props.onClose}>
-              Fechar
+        <div style={{ padding: 12, borderTop: '1px solid ' + COLORS.border, background: COLORS.surfaceMuted }}>
+          <div>
+            <button
+              style={{ ...styles.btn, ...styles.btnPrimary, marginRight: 8, marginBottom: 8 }}
+              onClick={function () {
+                props.onCopy('IDP', row.IDP);
+              }}
+              title="Copiar IDP"
+            >
+              Copiar IDP 📋
             </button>
+
+            <MiniTel
+              label="TF1"
+              value={row.TF1}
+              disabled={!tf1}
+              onClick={function () {
+                props.onCall('TF1');
+              }}
+              onCopy={function () {
+                props.onCopy('TF1', row.TF1);
+              }}
+            />
+            <MiniTel
+              label="TF2"
+              value={row.TF2}
+              disabled={!tf2}
+              onClick={function () {
+                props.onCall('TF2');
+              }}
+              onCopy={function () {
+                props.onCopy('TF2', row.TF2);
+              }}
+            />
+
+            <div style={{ marginTop: 8 }}>
+              <button style={styles.btn} onClick={props.onClose}>
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1280,9 +1419,11 @@ function MiniAppTabela() {
         setPayload(null);
 
         const url = API_GET_ENTREGA + '?entregasId=' + encodeURIComponent(entregaId);
-        const resp = await fetch(url, { cache: 'no-store' });
+        const resp = await requestText(url);
+        const raw = await resp.text().catch(function () {
+          return '';
+        });
 
-        const raw = await resp.text().catch(function () { return ''; });
         if (!resp.ok) throw new Error('HTTP ' + resp.status + ' • ' + (raw || 'Sem body'));
         if (!String(raw || '').trim()) throw new Error('Servidor respondeu vazio (sem JSON).');
 
@@ -1350,7 +1491,9 @@ function MiniAppTabela() {
       }
     }
 
-    arr.sort(function (a, b) { return a.localeCompare(b); });
+    arr.sort(function (a, b) {
+      return a.localeCompare(b);
+    });
     return arr;
   }, [allRows, geoCols.estado]);
 
@@ -1367,7 +1510,9 @@ function MiniAppTabela() {
       }
     }
 
-    arr.sort(function (a, b) { return a.localeCompare(b); });
+    arr.sort(function (a, b) {
+      return a.localeCompare(b);
+    });
     return arr;
   }, [allRows, geoCols.cidade]);
 
@@ -1384,7 +1529,9 @@ function MiniAppTabela() {
       }
     }
 
-    arr.sort(function (a, b) { return a.localeCompare(b); });
+    arr.sort(function (a, b) {
+      return a.localeCompare(b);
+    });
     return arr;
   }, [allRows, geoCols.regiao]);
 
@@ -1464,7 +1611,9 @@ function MiniAppTabela() {
       };
     });
 
-    setSaveTick(function (x) { return x + 1; });
+    setSaveTick(function (x) {
+      return x + 1;
+    });
   }
 
   function applyRowChange(row: Row, nextStatus: Status, nextObs: string) {
@@ -1519,9 +1668,9 @@ function MiniAppTabela() {
       return;
     }
 
-    const cleaned = String(hhmm || '').trim();
-    if (!/^\d{1,2}:\d{2}$/.test(cleaned) && !/^\d{2}:\d{2}$/.test(cleaned)) {
-      window.alert('Selecione um horário válido.');
+    const cleaned = validateHHMM(hhmm);
+    if (!cleaned) {
+      window.alert('Digite um horário válido.');
       return;
     }
 
@@ -1565,14 +1714,16 @@ function MiniAppTabela() {
     if (!v) return;
 
     try {
-      if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(v);
+      if (navigator && (navigator as any).clipboard && (navigator as any).clipboard.writeText) {
+        await (navigator as any).clipboard.writeText(v);
       } else {
         await fallbackCopyText(v);
       }
 
       setToast(label + ' copiado: ' + v);
-      setTimeout(function () { setToast(''); }, 3000);
+      setTimeout(function () {
+        setToast('');
+      }, 3000);
     } catch {
       try {
         await fallbackCopyText(v);
@@ -1580,7 +1731,9 @@ function MiniAppTabela() {
       } catch {
         setToast('Não foi possível copiar.');
       }
-      setTimeout(function () { setToast(''); }, 3000);
+      setTimeout(function () {
+        setToast('');
+      }, 3000);
     }
   }
 
@@ -1616,14 +1769,15 @@ function MiniAppTabela() {
         setSaving(true);
         setSaveError('');
 
-        const resp = await fetch(API_SAVE_PARTE, {
+        const resp = await requestText(API_SAVE_PARTE, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          cache: 'no-store',
           body: JSON.stringify({ entrega_id: entrega_id, changes: changes }),
         });
 
-        const txt = await resp.text().catch(function () { return ''; });
+        const txt = await resp.text().catch(function () {
+          return '';
+        });
         if (!resp.ok) throw new Error('HTTP ' + resp.status + ' • ' + (txt || 'Sem body'));
 
         setDirty({});
@@ -1641,17 +1795,23 @@ function MiniAppTabela() {
   }, [saveTick, dirty]);
 
   const pendentes = useMemo(function () {
-    return filteredRows.filter(function (r) { return r.STATUS === 'PENDENTE'; }).length;
+    return filteredRows.filter(function (r) {
+      return r.STATUS === 'PENDENTE';
+    }).length;
   }, [filteredRows]);
 
   const tratados = useMemo(function () {
-    return filteredRows.filter(function (r) { return r.STATUS !== 'PENDENTE'; }).length;
+    return filteredRows.filter(function (r) {
+      return r.STATUS !== 'PENDENTE';
+    }).length;
   }, [filteredRows]);
 
   const hasData = allRows.length > 0;
 
   const hintLink = useMemo(function () {
-    const base = window.location.origin + window.location.pathname + '#/?';
+    const origin = getLocationOriginSafe();
+    const path = window.location.pathname || '';
+    const base = origin + path + '#/?';
     return base + 'entregaId=SEU_ENTREGA_ID';
   }, []);
 
@@ -1661,12 +1821,24 @@ function MiniAppTabela() {
         <div style={styles.pill}>
           Página <b>{page}</b>/<b>{Math.max(1, totalPages)}</b>
         </div>
-        <button style={styles.btn} onClick={function () { setPage(function (p) { return Math.max(1, p - 1); }); }} disabled={page <= 1}>
+        <button
+          style={styles.btn}
+          onClick={function () {
+            setPage(function (p) {
+              return Math.max(1, p - 1);
+            });
+          }}
+          disabled={page <= 1}
+        >
           ⬅️
         </button>
         <button
           style={{ ...styles.btn, ...styles.btnPrimary }}
-          onClick={function () { setPage(function (p) { return Math.min(totalPages, p + 1); }); }}
+          onClick={function () {
+            setPage(function (p) {
+              return Math.min(totalPages, p + 1);
+            });
+          }}
           disabled={page >= totalPages}
         >
           ➡️
@@ -1682,7 +1854,9 @@ function MiniAppTabela() {
       <RowActionsModal
         open={actionsOpen}
         row={activeRow}
-        onClose={function () { setActionsOpen(false); }}
+        onClose={function () {
+          setActionsOpen(false);
+        }}
         onToggleStatus={function (next) {
           if (activeRow) toggleStatusForRow(activeRow, next);
         }}
@@ -1704,23 +1878,27 @@ function MiniAppTabela() {
       <RetornoModal
         open={retornoModalOpen}
         initialValue={retornoInitial}
-        onCancel={function () { setRetornoModalOpen(false); }}
+        onCancel={function () {
+          setRetornoModalOpen(false);
+        }}
         onConfirm={confirmRetorno}
       />
 
       <OutraCidadeModal
         open={outraCidadeModalOpen}
         initialValue={outraCidadeInitial}
-        onCancel={function () { setOutraCidadeModalOpen(false); }}
+        onCancel={function () {
+          setOutraCidadeModalOpen(false);
+        }}
         onConfirm={confirmOutraCidade}
       />
 
       {!hasData ? (
         <div style={styles.card}>
-          <div style={{ padding: 14, color: 'var(--text)' }}>
-            <div style={{ fontWeight: 900, fontSize: 14 }}>{loading ? 'Carregando…' : 'Aguardando dados…'}</div>
+          <div style={{ padding: 14, color: COLORS.text }}>
+            <div style={{ fontWeight: 900, fontSize: 14 }}>{loading ? 'Carregando...' : 'Aguardando dados...'}</div>
 
-            <div style={{ color: 'var(--text-muted)', marginTop: 6, fontSize: 12 }}>
+            <div style={{ color: COLORS.textMuted, marginTop: 6, fontSize: 12 }}>
               {loading ? 'Buscando o CSV no servidor (n8n → DB).' : 'Abra com entregaId para carregar. Exemplo:'}
             </div>
 
@@ -1729,12 +1907,12 @@ function MiniAppTabela() {
                 style={{
                   marginTop: 10,
                   padding: 10,
-                  border: '1px solid var(--border)',
+                  border: '1px solid ' + COLORS.border,
                   borderRadius: 10,
                   fontSize: 12,
-                  color: 'var(--text-muted)',
+                  color: COLORS.textMuted,
                   wordBreak: 'break-all',
-                  background: 'var(--surface)',
+                  background: COLORS.surface,
                 }}
               >
                 {hintLink}
@@ -1742,9 +1920,9 @@ function MiniAppTabela() {
             )}
 
             {error ? (
-              <div style={{ marginTop: 10, padding: 10, border: '1px solid var(--danger)', borderRadius: 10 }}>
+              <div style={{ marginTop: 10, padding: 10, border: '1px solid ' + COLORS.danger, borderRadius: 10 }}>
                 <div style={{ fontWeight: 900 }}>⚠️ Erro</div>
-                <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>{error}</div>
+                <div style={{ color: COLORS.textMuted, fontSize: 12, marginTop: 4 }}>{error}</div>
               </div>
             ) : null}
           </div>
@@ -1752,7 +1930,7 @@ function MiniAppTabela() {
       ) : (
         <>
           <div style={styles.topbarLocal}>
-            <div style={{ minWidth: 240 }}>
+            <div style={{ minWidth: 240, marginBottom: 8 }}>
               <div style={styles.h1}>Atendimento</div>
 
               <div style={styles.sub}>
@@ -1760,7 +1938,8 @@ function MiniAppTabela() {
               </div>
 
               <div style={{ ...styles.sub, marginTop: 6 }}>
-                Salvando: <b style={{ color: saving ? 'var(--warning)' : 'var(--text-muted)' }}>{saving ? 'SIM' : 'NÃO'}</b>
+                Salvando:{' '}
+                <b style={{ color: saving ? COLORS.warning : COLORS.textMuted }}>{saving ? 'SIM' : 'NÃO'}</b>
                 {lastSavedAt ? (
                   <span style={{ marginLeft: 10 }}>
                     Último: <b>{lastSavedAt}</b>
@@ -1769,18 +1948,33 @@ function MiniAppTabela() {
               </div>
 
               <div style={{ ...styles.sub, marginTop: 6 }}>
-                Alterações pendentes: <b style={{ color: dirtyCount ? 'var(--warning)' : 'var(--text-muted)' }}>{dirtyCount}</b>
+                Alterações pendentes:{' '}
+                <b style={{ color: dirtyCount ? COLORS.warning : COLORS.textMuted }}>{dirtyCount}</b>
               </div>
 
               {saveError ? (
-                <div style={{ marginTop: 8, padding: 10, border: '1px solid var(--danger)', borderRadius: 10, fontSize: 12 }}>
+                <div
+                  style={{
+                    marginTop: 8,
+                    padding: 10,
+                    border: '1px solid ' + COLORS.danger,
+                    borderRadius: 10,
+                    fontSize: 12,
+                  }}
+                >
                   ❌ {saveError}
                 </div>
               ) : null}
             </div>
 
             <div style={styles.filtersRow}>
-              <select value={statusFilter} onChange={function (e) { setStatusFilter(e.target.value as StatusFilter); }} style={styles.select}>
+              <select
+                value={statusFilter}
+                onChange={function (e) {
+                  setStatusFilter(e.target.value as StatusFilter);
+                }}
+                style={styles.select}
+              >
                 <option value="TODOS">Status: Todos</option>
                 <option value="PENDENTES">Status: Pendentes</option>
                 <option value="PESQUISA_FEITA">Status: Pesquisa Feita</option>
@@ -1794,7 +1988,13 @@ function MiniAppTabela() {
               </select>
 
               {geoCols.estado ? (
-                <select value={estadoFilter} onChange={function (e) { setEstadoFilter(e.target.value); }} style={styles.select}>
+                <select
+                  value={estadoFilter}
+                  onChange={function (e) {
+                    setEstadoFilter(e.target.value);
+                  }}
+                  style={styles.select}
+                >
                   <option value="TODOS">Estado: Todos</option>
                   {estadosDisponiveis.map(function (uf) {
                     return (
@@ -1807,7 +2007,13 @@ function MiniAppTabela() {
               ) : null}
 
               {geoCols.cidade ? (
-                <select value={cidadeFilter} onChange={function (e) { setCidadeFilter(e.target.value); }} style={styles.select}>
+                <select
+                  value={cidadeFilter}
+                  onChange={function (e) {
+                    setCidadeFilter(e.target.value);
+                  }}
+                  style={styles.select}
+                >
                   <option value="TODAS">Cidade: Todas</option>
                   {cidadesDisponiveis.map(function (c) {
                     return (
@@ -1820,7 +2026,13 @@ function MiniAppTabela() {
               ) : null}
 
               {geoCols.regiao ? (
-                <select value={regiaoFilter} onChange={function (e) { setRegiaoFilter(e.target.value); }} style={styles.select}>
+                <select
+                  value={regiaoFilter}
+                  onChange={function (e) {
+                    setRegiaoFilter(e.target.value);
+                  }}
+                  style={styles.select}
+                >
                   <option value="TODAS">Região: Todas</option>
                   {regioesDisponiveis.map(function (rg) {
                     return (
@@ -1845,7 +2057,9 @@ function MiniAppTabela() {
               </button>
             </div>
 
-            <PaginationControls />
+            <div style={{ marginTop: 8 }}>
+              <PaginationControls />
+            </div>
           </div>
 
           <div style={styles.card}>
@@ -1902,7 +2116,9 @@ function MiniAppTabela() {
                           background: isSelected ? selectedBg : baseBg,
                           outline: isSelected ? '3px solid rgba(0,0,0,.14)' : '2px solid transparent',
                         }}
-                        onClick={function () { openRowActions(r); }}
+                        onClick={function () {
+                          openRowActions(r);
+                        }}
                       >
                         <td style={styles.td}>
                           <StatusPill row={r} />
@@ -1928,9 +2144,9 @@ function MiniAppTabela() {
                         colSpan={2 + (geoCols.estado ? 1 : 0) + (geoCols.cidade ? 1 : 0) + (geoCols.regiao ? 1 : 0) + 2}
                         style={{
                           padding: 14,
-                          color: 'var(--text-muted)',
+                          color: COLORS.textMuted,
                           fontSize: 13,
-                          background: 'var(--surface)',
+                          background: COLORS.surface,
                         }}
                       >
                         Nenhum registro encontrado com esses filtros.
@@ -1943,7 +2159,7 @@ function MiniAppTabela() {
 
             <div style={styles.footerHint}>✅ Clique na linha para abrir o modal de ações.</div>
 
-            <div style={{ padding: 10, borderTop: '1px solid var(--border)', background: 'var(--surfaceMuted)' }}>
+            <div style={{ padding: 10, borderTop: '1px solid ' + COLORS.border, background: COLORS.surfaceMuted }}>
               <PaginationControls />
             </div>
           </div>
@@ -1970,103 +2186,96 @@ export function App() {
 
 const styles: Record<string, React.CSSProperties> = {
   topbarLocal: {
-    background: 'var(--surfaceMuted)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius)',
-    boxShadow: 'var(--shadow)',
+    background: COLORS.surfaceMuted,
+    border: '1px solid ' + COLORS.border,
+    borderRadius: COLORS.radius,
+    boxShadow: COLORS.shadow,
     padding: 10,
-    display: 'flex',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 10,
-    flexWrap: 'wrap',
     marginBottom: 10,
   },
-  h1: { fontWeight: 900, fontSize: 15, color: 'var(--text)' },
-  sub: { fontSize: 13, color: 'var(--text-muted)', marginTop: 4 },
+  h1: { fontWeight: 900, fontSize: 15, color: COLORS.text },
+  sub: { fontSize: 13, color: COLORS.textMuted, marginTop: 4 },
 
   filtersRow: {
-    display: 'flex',
-    gap: 8,
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    maxWidth: 900,
+    marginTop: 8,
   },
 
   select: {
-    border: '1px solid var(--border)',
-    background: 'var(--surface)',
-    color: 'var(--text)',
+    border: '1px solid ' + COLORS.border,
+    background: COLORS.surface,
+    color: COLORS.text,
     padding: '10px 12px',
     borderRadius: 10,
     fontSize: 13,
     outline: 'none',
+    marginRight: 8,
+    marginBottom: 8,
   },
 
-  nav: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
+  nav: { display: 'block' },
   pill: {
-    border: '1px solid var(--border)',
-    background: 'var(--surface)',
-    color: 'var(--text)',
+    border: '1px solid ' + COLORS.border,
+    background: COLORS.surface,
+    color: COLORS.text,
     padding: '8px 10px',
     borderRadius: 999,
     fontSize: 13,
-    display: 'flex',
-    gap: 6,
-    alignItems: 'center',
+    display: 'inline-block',
+    marginRight: 8,
+    marginBottom: 8,
     whiteSpace: 'nowrap',
   },
 
   btn: {
-    border: '1px solid var(--border)',
-    background: 'var(--secondary)',
-    color: 'var(--secondary-text)',
+    border: '1px solid ' + COLORS.border,
+    background: COLORS.secondary,
+    color: COLORS.secondaryText,
     padding: '10px 12px',
     borderRadius: 10,
     fontWeight: 900,
     fontSize: 13,
     cursor: 'pointer',
+    marginRight: 8,
+    marginBottom: 8,
   },
   btnPrimary: {
-    background: 'var(--primary)',
-    color: 'var(--primary-text)',
-    borderColor: 'var(--border)',
+    background: COLORS.primary,
+    color: COLORS.primaryText,
+    borderColor: COLORS.border,
   },
 
   card: {
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius)',
+    background: COLORS.surface,
+    border: '1px solid ' + COLORS.border,
+    borderRadius: COLORS.radius,
     overflow: 'hidden',
-    boxShadow: 'var(--shadow)',
+    boxShadow: COLORS.shadow,
   },
   cardHeader: {
     padding: 10,
-    borderBottom: '1px solid var(--border)',
-    background: 'var(--surfaceMuted)',
+    borderBottom: '1px solid ' + COLORS.border,
+    background: COLORS.surfaceMuted,
   },
-  cardTitle: { fontWeight: 900, fontSize: 14, color: 'var(--text)' },
-  cardSub: { fontSize: 13, color: 'var(--text-muted)', marginTop: 4 },
+  cardTitle: { fontWeight: 900, fontSize: 14, color: COLORS.text },
+  cardSub: { fontSize: 13, color: COLORS.textMuted, marginTop: 4 },
 
-  tableWrap: { overflow: 'auto', background: 'var(--surface)' },
+  tableWrap: { overflow: 'auto', background: COLORS.surface },
   table: { width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 860 },
   th: {
-    position: 'sticky',
-    top: 0,
-    background: 'var(--surfaceMuted)',
-    borderBottom: '1px solid var(--border)',
+    background: COLORS.surfaceMuted,
+    borderBottom: '1px solid ' + COLORS.border,
     padding: '10px 12px',
     fontSize: 13,
     textAlign: 'left',
-    color: 'var(--text-muted)',
+    color: COLORS.textMuted,
     whiteSpace: 'nowrap',
   },
   tr: { cursor: 'pointer' },
   td: {
-    borderBottom: '1px solid var(--border)',
+    borderBottom: '1px solid ' + COLORS.border,
     padding: '11px 12px',
     fontSize: 13,
-    color: 'var(--text)',
+    color: COLORS.text,
     whiteSpace: 'nowrap',
     userSelect: 'text',
     background: 'transparent',
@@ -2074,9 +2283,9 @@ const styles: Record<string, React.CSSProperties> = {
 
   footerHint: {
     padding: 10,
-    color: 'var(--text-muted)',
+    color: COLORS.textMuted,
     fontSize: 13,
-    background: 'var(--surface)',
+    background: COLORS.surface,
   },
 
   btnAction: {
@@ -2114,36 +2323,59 @@ const styles: Record<string, React.CSSProperties> = {
 const stylesModal: Record<string, React.CSSProperties> = {
   overlay: {
     position: 'fixed',
-    inset: 0,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     background: 'rgba(0,0,0,.35)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
     padding: 14,
     zIndex: 9999,
+    overflowY: 'auto',
   },
   box: {
-    width: 'min(420px, 96vw)',
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
+    width: '96%',
+    maxWidth: 420,
+    margin: '20px auto',
+    background: COLORS.surface,
+    border: '1px solid ' + COLORS.border,
     borderRadius: 14,
-    boxShadow: 'var(--shadow)',
+    boxShadow: COLORS.shadow,
+    overflow: 'hidden',
+  },
+  boxLarge: {
+    width: '96%',
+    maxWidth: 560,
+    margin: '20px auto',
+    background: COLORS.surface,
+    border: '1px solid ' + COLORS.border,
+    borderRadius: 14,
+    boxShadow: COLORS.shadow,
+    overflow: 'hidden',
+  },
+  boxXLarge: {
+    width: '96%',
+    maxWidth: 760,
+    margin: '20px auto',
+    background: COLORS.surface,
+    border: '1px solid ' + COLORS.border,
+    borderRadius: 14,
+    boxShadow: COLORS.shadow,
     overflow: 'hidden',
   },
   header: {
     padding: 12,
-    background: 'var(--surfaceMuted)',
-    borderBottom: '1px solid var(--border)',
+    background: COLORS.surfaceMuted,
+    borderBottom: '1px solid ' + COLORS.border,
   },
-  title: { fontWeight: 900, fontSize: 14, color: 'var(--text)' },
-  sub: { fontSize: 12, color: 'var(--text-muted)', marginTop: 4 },
+  title: { fontWeight: 900, fontSize: 14, color: COLORS.text },
+  sub: { fontSize: 12, color: COLORS.textMuted, marginTop: 4 },
   input: {
     width: '100%',
     padding: '12px 12px',
     borderRadius: 12,
-    border: '1px solid var(--border)',
-    background: 'var(--surface-2)',
-    color: 'var(--text)',
+    border: '1px solid ' + COLORS.border,
+    background: COLORS.surface2,
+    color: COLORS.text,
     fontSize: 16,
     fontWeight: 900,
     outline: 'none',
@@ -2152,12 +2384,15 @@ const stylesModal: Record<string, React.CSSProperties> = {
     width: '100%',
     padding: '12px 12px',
     borderRadius: 12,
-    border: '1px solid var(--border)',
-    background: 'var(--surface-2)',
-    color: 'var(--text)',
+    border: '1px solid ' + COLORS.border,
+    background: COLORS.surface2,
+    color: COLORS.text,
     fontSize: 14,
     fontWeight: 800,
     outline: 'none',
   },
-  rowBtns: { display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 },
+  rowBtns: {
+    marginTop: 12,
+    textAlign: 'right',
+  },
 };
