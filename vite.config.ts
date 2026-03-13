@@ -18,10 +18,9 @@ export default defineConfig({
     react(),
     legacy({
       targets: [
-        'defaults',
-        'Android >= 7',
-        'Chrome >= 70',
-        'iOS >= 12',
+        'Android >= 5',
+        'Chrome >= 37',
+        'iOS >= 10',
       ],
     }),
     tsconfigPaths(),
