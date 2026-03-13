@@ -65,19 +65,16 @@ const API_SAVE_PARTE = 'https://n8n.srv962474.hstgr.cloud/webhook/parte/salvar';
 const IBGE_MUNICIPIOS_API = 'https://servicodados.ibge.gov.br/api/v1/localidades/municipios';
 
 const COLORS = {
-  bg: '#FFFFFF',
   surface: '#FFFFFF',
   surface2: '#FFFFFF',
   surfaceMuted: '#F3F4F6',
   text: '#000000',
   textMuted: '#374151',
   border: '#D1D5DB',
-
   primary: '#000000',
   primaryText: '#FFFFFF',
   secondary: '#FFFFFF',
   secondaryText: '#000000',
-
   success: '#16A34A',
   warning: '#F59E0B',
   danger: '#EF4444',
@@ -86,7 +83,6 @@ const COLORS = {
   purple: '#7C3AED',
   teal: '#0F766E',
   pink: '#BE185D',
-
   shadow: '0 8px 22px rgba(0,0,0,.08)',
   radius: 14,
 };
@@ -118,34 +114,34 @@ table{
 `;
 
 function zeroPad(value: number | string, size: number) {
-  const text = String(value == null ? '' : value);
-  if ((text as any).padStart) return text.padStart(size, '0');
+  var text = String(value == null ? '' : value);
+  if ((text as any).padStart) return (text as any).padStart(size, '0');
   return ('000000000000' + text).slice(-size);
 }
 
 function safeNormalizeText(value: string) {
-  const text = String(value || '').replace(/^\uFEFF/, '');
+  var text = String(value || '').replace(/^\uFEFF/, '');
   try {
     if ((text as any).normalize) {
-      return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      return (text as any).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     }
   } catch (e) {}
   return text;
 }
 
 function parseSimpleQueryString(qs: string) {
-  const out: Record<string, string> = {};
-  const clean = String(qs || '').replace(/^\?/, '').trim();
+  var out: Record<string, string> = {};
+  var clean = String(qs || '').replace(/^\?/, '').trim();
   if (!clean) return out;
 
-  const parts = clean.split('&');
-  for (let i = 0; i < parts.length; i++) {
-    const piece = parts[i];
+  var parts = clean.split('&');
+  for (var i = 0; i < parts.length; i++) {
+    var piece = parts[i];
     if (!piece) continue;
 
-    const eq = piece.indexOf('=');
-    let key = piece;
-    let val = '';
+    var eq = piece.indexOf('=');
+    var key = piece;
+    var val = '';
 
     if (eq >= 0) {
       key = piece.slice(0, eq);
@@ -167,37 +163,37 @@ function parseSimpleQueryString(qs: string) {
 
 function getEntregaIdOnly(): string {
   try {
-    const hash = window.location.hash || '';
-    const qi = hash.indexOf('?');
+    var hash = window.location.hash || '';
+    var qi = hash.indexOf('?');
 
     if (qi >= 0) {
-      const hashQs = hash.slice(qi + 1);
+      var hashQs = hash.slice(qi + 1);
 
       try {
         if (typeof URLSearchParams !== 'undefined') {
-          const hp = new URLSearchParams(hashQs);
-          const v = String(hp.get('entregaId') || '').trim();
+          var hp = new URLSearchParams(hashQs);
+          var v = String(hp.get('entregaId') || '').trim();
           if (v && v !== 'undefined' && v !== 'null') return v;
         }
       } catch (e) {}
 
-      const parsedHash = parseSimpleQueryString(hashQs);
-      const vHash = String(parsedHash.entregaId || '').trim();
+      var parsedHash = parseSimpleQueryString(hashQs);
+      var vHash = String(parsedHash.entregaId || '').trim();
       if (vHash && vHash !== 'undefined' && vHash !== 'null') return vHash;
     }
 
-    const searchQs = window.location.search || '';
+    var searchQs = window.location.search || '';
 
     try {
       if (typeof URLSearchParams !== 'undefined') {
-        const sp = new URLSearchParams(searchQs);
-        const v2 = String(sp.get('entregaId') || '').trim();
+        var sp = new URLSearchParams(searchQs);
+        var v2 = String(sp.get('entregaId') || '').trim();
         if (v2 && v2 !== 'undefined' && v2 !== 'null') return v2;
       }
     } catch (e) {}
 
-    const parsedSearch = parseSimpleQueryString(searchQs);
-    const vSearch = String(parsedSearch.entregaId || '').trim();
+    var parsedSearch = parseSimpleQueryString(searchQs);
+    var vSearch = String(parsedSearch.entregaId || '').trim();
     if (vSearch && vSearch !== 'undefined' && vSearch !== 'null') return vSearch;
   } catch (e) {}
 
@@ -205,18 +201,20 @@ function getEntregaIdOnly(): string {
 }
 
 function safeTel(v: string) {
-  return String(v || '').trim().replace(/[^\d+]/g, '');
+  return String(v || '')
+    .trim()
+    .replace(/[^\d+]/g, '');
 }
 
 function telToDial(v: string) {
-  const digits = safeTel(v).replace(/[^\d]/g, '');
+  var digits = safeTel(v).replace(/[^\d]/g, '');
   if (!digits) return '';
   if (digits.indexOf('0') === 0 || digits.indexOf('55') === 0) return digits;
   return '0' + digits;
 }
 
 function nowLocalStampPreciso() {
-  const d = new Date();
+  var d = new Date();
   return (
     zeroPad(d.getDate(), 2) +
     '/' +
@@ -239,18 +237,18 @@ function normalizeHeader(h: string) {
 }
 
 function canonicalHeaderKey(h: string) {
-  const n = normalizeHeader(h)
+  var n = normalizeHeader(h)
     .replace(/[.\-\/\\]/g, '_')
     .replace(/\s+/g, '_')
     .replace(/_+/g, '_')
     .replace(/^_+|_+$/g, '');
 
-  const semSufixo = n.replace(/_\d+$/, '');
+  var semSufixo = n.replace(/_\d+$/, '');
 
   if (semSufixo === 'STATUS') return 'STATUS';
   if (semSufixo === 'OBSERVACAO') return 'OBSERVACAO';
 
-  const dtCompacto = semSufixo.replace(/_/g, '');
+  var dtCompacto = semSufixo.replace(/_/g, '');
   if (dtCompacto === 'DTALTERACAO') return 'DT_ALTERACAO';
 
   if (semSufixo === 'LINE') return 'LINE';
@@ -265,7 +263,7 @@ function canonicalHeaderKey(h: string) {
 }
 
 function sanitizeStatus(raw: string): Status {
-  const s = String(safeNormalizeText(raw) || '')
+  var s = String(safeNormalizeText(raw) || '')
     .trim()
     .toUpperCase()
     .replace(/\s+/g, '_')
@@ -302,58 +300,57 @@ function sanitizeStatus(raw: string): Status {
 }
 
 function buildOutraCidadeObs(tipo: OutraCidadeTipo, valor?: string) {
-  const v = String(valor || '').trim();
+  var v = String(valor || '').trim();
   if (tipo === 'NQ_RESPONDER') return 'NQ_RESPONDER';
   return v || 'MORA_VOTA';
 }
 
 function outraCidadeFromObs(obs: string) {
-  const t = String(obs || '').trim();
+  var t = String(obs || '').trim();
   if (t === 'NQ_RESPONDER') return '';
   return t;
 }
 
 function outraCidadeLabel(obs: string) {
-  const t = String(obs || '').trim();
+  var t = String(obs || '').trim();
   if (t === 'NQ_RESPONDER') return 'MORA/VOTA EM OUTRA CIDADE • NQ RESPONDER';
   return t ? 'MORA/VOTA EM OUTRA CIDADE • ' + t : 'MORA/VOTA EM OUTRA CIDADE';
 }
 
 function retornoLabelFromObs(obs: string) {
-  const t = String(obs || '').trim();
+  var t = String(obs || '').trim();
   if (/^\d{1,2}:\d{2}$/.test(t)) return t;
 
-  const m = t.match(/RETORNO\s*[-–—]?\s*(\d{1,2}:\d{2})/i);
+  var m = t.match(/RETORNO\s*[-–—]?\s*(\d{1,2}:\d{2})/i);
   return m && m[1] ? m[1] : '';
 }
 
 function obsToSave(status: Status, obs: string) {
-  const t = String(obs || '').trim();
+  var t = String(obs || '').trim();
 
   if (status === 'OUTRA_CIDADE') return t;
 
   if (status === 'RETORNO') {
-    const hhmm = retornoLabelFromObs(t) || t.replace(/^RETORNO\s*[-–—]?\s*/i, '').trim();
+    var hhmm = retornoLabelFromObs(t) || t.replace(/^RETORNO\s*[-–—]?\s*/i, '').trim();
     return hhmm;
   }
 
   if (status === 'NAO_PODE_FAZER_PESQUISA') return '';
-
   return t;
 }
 
 function parseCsv(csv: string): { headers: string[]; rows: Record<string, string>[] } {
-  const text = String(csv || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  var text = String(csv || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   if (!text) return { headers: [], rows: [] };
 
-  const lines: string[] = [];
-  let cur = '';
-  let inQuotes = false;
+  var lines: string[] = [];
+  var cur = '';
+  var inQuotes = false;
 
-  for (let i = 0; i < text.length; i++) {
-    const ch = text.charAt(i);
+  for (var i = 0; i < text.length; i++) {
+    var ch = text.charAt(i);
     if (ch === '"') {
-      const next = text.charAt(i + 1);
+      var next = text.charAt(i + 1);
       if (inQuotes && next === '"') {
         cur += '"';
         i++;
@@ -375,107 +372,107 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
   if (cur) lines.push(cur);
 
   function splitLine(line: string) {
-    const out: string[] = [];
-    let c = '';
-    let q = false;
+    var out: string[] = [];
+    var c = '';
+    var q = false;
 
-    for (let i = 0; i < line.length; i++) {
-      const ch = line.charAt(i);
-      if (ch === '"') {
-        const next = line.charAt(i + 1);
-        if (q && next === '"') {
+    for (var j = 0; j < line.length; j++) {
+      var ch2 = line.charAt(j);
+      if (ch2 === '"') {
+        var next2 = line.charAt(j + 1);
+        if (q && next2 === '"') {
           c += '"';
-          i++;
+          j++;
         } else {
           q = !q;
         }
         continue;
       }
 
-      if (ch === ',' && !q) {
+      if (ch2 === ',' && !q) {
         out.push(c);
         c = '';
         continue;
       }
 
-      c += ch;
+      c += ch2;
     }
 
     out.push(c);
 
-    const cleaned: string[] = [];
-    for (let j = 0; j < out.length; j++) {
-      cleaned.push(String(out[j] || '').trim());
+    var cleaned: string[] = [];
+    for (var k = 0; k < out.length; k++) {
+      cleaned.push(String(out[k] || '').trim());
     }
 
     return cleaned;
   }
 
-  const rawHeaders = splitLine(lines[0]);
-  const headers: string[] = [];
-  for (let i = 0; i < rawHeaders.length; i++) {
-    headers.push(String(rawHeaders[i] || '').replace(/^"|"$/g, '').trim());
+  var rawHeaders = splitLine(lines[0]);
+  var headers: string[] = [];
+  for (var h = 0; h < rawHeaders.length; h++) {
+    headers.push(String(rawHeaders[h] || '').replace(/^"|"$/g, '').trim());
   }
 
-  const rows: Record<string, string>[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const ln = lines[i];
-    const cols = splitLine(ln);
-    const obj: Record<string, string> = {};
+  var rows: Record<string, string>[] = [];
+  for (var r = 1; r < lines.length; r++) {
+    var ln = lines[r];
+    var cols = splitLine(ln);
+    var obj: Record<string, string> = {};
 
-    for (let j = 0; j < headers.length; j++) {
-      obj[headers[j]] = String(cols[j] == null ? '' : cols[j]).replace(/^"|"$/g, '');
+    for (var c2 = 0; c2 < headers.length; c2++) {
+      obj[headers[c2]] = String(cols[c2] == null ? '' : cols[c2]).replace(/^"|"$/g, '');
     }
 
     rows.push(obj);
   }
 
-  return { headers, rows };
+  return { headers: headers, rows: rows };
 }
 
 function pickCanonicalValue(obj: Record<string, string>, headers: string[], familyKey: string) {
-  const matchingHeaders: string[] = [];
+  var matchingHeaders: string[] = [];
 
-  for (let i = 0; i < headers.length; i++) {
+  for (var i = 0; i < headers.length; i++) {
     if (canonicalHeaderKey(headers[i]) === familyKey) matchingHeaders.push(headers[i]);
   }
 
   if (!matchingHeaders.length) return '';
 
-  const values: string[] = [];
-  for (let i = 0; i < matchingHeaders.length; i++) {
-    const realHeader = matchingHeaders[i];
+  var values: string[] = [];
+  for (var j = 0; j < matchingHeaders.length; j++) {
+    var realHeader = matchingHeaders[j];
     values.push(String(obj[realHeader] == null ? '' : obj[realHeader]).trim());
   }
 
-  for (let i = values.length - 1; i >= 0; i--) {
-    if (values[i]) return values[i];
+  for (var k = values.length - 1; k >= 0; k--) {
+    if (values[k]) return values[k];
   }
 
   return values.length ? values[values.length - 1] : '';
 }
 
 function csvToRows(csv: string): Row[] {
-  const parsed = parseCsv(csv);
-  const headers = parsed.headers;
-  const rows = parsed.rows;
+  var parsed = parseCsv(csv);
+  var headers = parsed.headers;
+  var rows = parsed.rows;
   if (!rows.length) return [];
 
-  const out: Row[] = [];
+  var out: Row[] = [];
 
-  for (let idx = 0; idx < rows.length; idx++) {
-    const r = rows[idx];
-    const lineCsv = pickCanonicalValue(r, headers, 'LINE');
-    const IDP = pickCanonicalValue(r, headers, 'IDP') || String(idx + 1);
-    const ESTADO = pickCanonicalValue(r, headers, 'ESTADO') || '';
-    const CIDADE = pickCanonicalValue(r, headers, 'CIDADE') || '';
-    const REGIAO_CIDADE = pickCanonicalValue(r, headers, 'REGIAO_CIDADE') || '';
-    const TF1 = pickCanonicalValue(r, headers, 'TF1') || '';
-    const TF2 = pickCanonicalValue(r, headers, 'TF2') || '';
-    const statusCsv = pickCanonicalValue(r, headers, 'STATUS') || 'PENDENTE';
-    const obsCsv = pickCanonicalValue(r, headers, 'OBSERVACAO') || '';
-    const dtAlteracaoCsv = pickCanonicalValue(r, headers, 'DT_ALTERACAO') || '';
-    const lineNum = Number(String(lineCsv || '').trim());
+  for (var idx = 0; idx < rows.length; idx++) {
+    var r = rows[idx];
+    var lineCsv = pickCanonicalValue(r, headers, 'LINE');
+    var IDP = pickCanonicalValue(r, headers, 'IDP') || String(idx + 1);
+    var ESTADO = pickCanonicalValue(r, headers, 'ESTADO') || '';
+    var CIDADE = pickCanonicalValue(r, headers, 'CIDADE') || '';
+    var REGIAO_CIDADE = pickCanonicalValue(r, headers, 'REGIAO_CIDADE') || '';
+    var TF1 = pickCanonicalValue(r, headers, 'TF1') || '';
+    var TF2 = pickCanonicalValue(r, headers, 'TF2') || '';
+    var statusCsv = pickCanonicalValue(r, headers, 'STATUS') || 'PENDENTE';
+    var obsCsv = pickCanonicalValue(r, headers, 'OBSERVACAO') || '';
+    var dtAlteracaoCsv = pickCanonicalValue(r, headers, 'DT_ALTERACAO') || '';
+    var lineNum = Number(String(lineCsv || '').trim());
 
     out.push({
       id: 'row-' + String(idx + 1),
@@ -496,7 +493,7 @@ function csvToRows(csv: string): Row[] {
 }
 
 function statusText(row: Row) {
-  const s = row.STATUS;
+  var s = row.STATUS;
 
   if (s === 'PESQUISA_FEITA') return 'PESQUISA FEITA';
   if (s === 'NAO_ATENDEU' || s === 'CAIXA_POSTAL') return 'NÃO ATENDEU/CAIXA POSTAL';
@@ -506,7 +503,7 @@ function statusText(row: Row) {
   if (s === 'OUTRA_CIDADE') return outraCidadeLabel(row.OBSERVACAO);
 
   if (s === 'RETORNO') {
-    const hhmm = retornoLabelFromObs(row.OBSERVACAO);
+    var hhmm = retornoLabelFromObs(row.OBSERVACAO);
     return hhmm ? 'RETORNO • ' + hhmm : 'RETORNO';
   }
 
@@ -574,8 +571,8 @@ function getUfNomeFromMunicipio(m: IbgeMunicipio) {
 }
 
 function cityLabel(nome: string, estadoNome: string) {
-  const n = String(nome || '').trim();
-  const e = String(estadoNome || '').trim();
+  var n = String(nome || '').trim();
+  var e = String(estadoNome || '').trim();
   if (!n) return '';
   return e ? n + '/' + e : n;
 }
@@ -603,19 +600,19 @@ function supportsFetch() {
 function xhrRequest(url: string, options?: { method?: string; headers?: Record<string, string>; body?: string }) {
   return new Promise<SimpleResponse>(function (resolve, reject) {
     try {
-      const xhr = new XMLHttpRequest();
+      var xhr = new XMLHttpRequest();
       xhr.open(options && options.method ? options.method : 'GET', url, true);
 
-      const headers = (options && options.headers) || {};
-      const keys = Object.keys(headers);
-      for (let i = 0; i < keys.length; i++) {
+      var headers = (options && options.headers) || {};
+      var keys = Object.keys(headers);
+      for (var i = 0; i < keys.length; i++) {
         xhr.setRequestHeader(keys[i], headers[keys[i]]);
       }
 
       xhr.onreadystatechange = function () {
         if (xhr.readyState !== 4) return;
 
-        const responseText = xhr.responseText || '';
+        var responseText = xhr.responseText || '';
         resolve({
           ok: xhr.status >= 200 && xhr.status < 300,
           status: xhr.status,
@@ -658,11 +655,11 @@ function requestText(url: string, options?: { method?: string; headers?: Record<
 }
 
 function validateHHMM(value: string) {
-  const cleaned = String(value || '').trim();
+  var cleaned = String(value || '').trim();
   if (!/^\d{1,2}:\d{2}$/.test(cleaned)) return '';
-  const parts = cleaned.split(':');
-  const hh = Number(parts[0]);
-  const mm = Number(parts[1]);
+  var parts = cleaned.split(':');
+  var hh = Number(parts[0]);
+  var mm = Number(parts[1]);
 
   if (isNaN(hh) || isNaN(mm)) return '';
   if (hh < 0 || hh > 23) return '';
@@ -673,7 +670,7 @@ function validateHHMM(value: string) {
 
 function fallbackCopyText(text: string) {
   return new Promise<void>(function (resolve, reject) {
-    const ta = document.createElement('textarea');
+    var ta = document.createElement('textarea');
     ta.value = text;
     ta.setAttribute('readonly', 'true');
     ta.style.position = 'fixed';
@@ -685,7 +682,7 @@ function fallbackCopyText(text: string) {
     ta.focus();
     ta.select();
 
-    let ok = false;
+    var ok = false;
     try {
       ok = document.execCommand('copy');
     } catch (e) {
@@ -704,7 +701,7 @@ function fallbackCopyText(text: string) {
 }
 
 function StatusPill(props: { row: Row }) {
-  const c = statusVars(props.row.STATUS);
+  var c = statusVars(props.row.STATUS);
 
   return (
     <span
@@ -730,9 +727,9 @@ function ActionButton(props: {
   children: React.ReactNode;
   onClick: () => void;
 }) {
-  const kind = props.kind;
+  var kind = props.kind;
 
-  const base =
+  var base =
     kind === 'danger'
       ? { border: '1px solid rgba(239,68,68,.70)', background: 'rgba(239,68,68,.18)' }
       : kind === 'orange'
@@ -770,7 +767,7 @@ function MiniTel(props: {
   onClick: () => void;
   onCopy: () => void;
 }) {
-  const enabled = !props.disabled;
+  var enabled = !props.disabled;
 
   return (
     <div>
@@ -840,7 +837,9 @@ function RetornoModal(props: {
   onCancel: () => void;
   onConfirm: (hhmm: string) => void;
 }) {
-  const [value, setValue] = useState(props.initialValue || '');
+  var _a = useState(props.initialValue || ''),
+    value = _a[0],
+    setValue = _a[1];
 
   useEffect(function () {
     setValue(props.initialValue || '');
@@ -872,7 +871,7 @@ function RetornoModal(props: {
         <button
           style={{ ...styles.btn, ...styles.btnPrimary }}
           onClick={function () {
-            const cleaned = validateHHMM(value);
+            var cleaned = validateHHMM(value);
             if (!cleaned) {
               window.alert('Digite um horário válido no formato HH:MM.');
               return;
@@ -893,11 +892,21 @@ function OutraCidadeModal(props: {
   onCancel: () => void;
   onConfirm: (payload: { tipo: OutraCidadeTipo; city: string }) => void;
 }) {
-  const [loading, setLoading] = useState(false);
-  const [loadErr, setLoadErr] = useState('');
-  const [all, setAll] = useState<{ label: string; nome: string; estado: string }[]>([]);
-  const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState('');
+  var _a = useState(false),
+    loading = _a[0],
+    setLoading = _a[1];
+  var _b = useState(''),
+    loadErr = _b[0],
+    setLoadErr = _b[1];
+  var _c = useState([] as { label: string; nome: string; estado: string }[]),
+    all = _c[0],
+    setAll = _c[1];
+  var _d = useState(''),
+    query = _d[0],
+    setQuery = _d[1];
+  var _e = useState(''),
+    selected = _e[0],
+    setSelected = _e[1];
 
   useEffect(function () {
     if (!props.open) return;
@@ -914,22 +923,22 @@ function OutraCidadeModal(props: {
         return resp.text().then(function (raw) {
           if (!resp.ok) throw new Error('HTTP ' + resp.status + ' • ' + (raw || 'Sem body'));
 
-          let data: any;
+          var data: any;
           try {
             data = JSON.parse(raw);
           } catch (e) {
             throw new Error('Resposta do IBGE não é JSON.');
           }
 
-          const list: IbgeMunicipio[] = Array.isArray(data) ? data : [];
-          const mapped: { label: string; nome: string; estado: string }[] = [];
+          var list: IbgeMunicipio[] = Array.isArray(data) ? data : [];
+          var mapped: { label: string; nome: string; estado: string }[] = [];
 
-          for (let i = 0; i < list.length; i++) {
-            const m = list[i];
-            const estado = getUfNomeFromMunicipio(m);
-            const nome = String((m && m.nome) || '').trim();
-            const label = cityLabel(nome, estado);
-            if (label) mapped.push({ label, nome, estado });
+          for (var i = 0; i < list.length; i++) {
+            var m = list[i];
+            var estado = getUfNomeFromMunicipio(m);
+            var nome = String((m && m.nome) || '').trim();
+            var label = cityLabel(nome, estado);
+            if (label) mapped.push({ label: label, nome: nome, estado: estado });
           }
 
           mapped.sort(function (a, b) {
@@ -947,27 +956,27 @@ function OutraCidadeModal(props: {
       });
   }, [props.open, props.initialValue, all.length]);
 
-  const options = useMemo(function () {
-    const q = String(query || '').trim().toLowerCase();
+  var options = useMemo(function () {
+    var q = String(query || '').trim().toLowerCase();
     if (!all.length) return [];
     if (!q) return all.slice(0, 50);
 
-    const out: { label: string; nome: string; estado: string }[] = [];
-    for (let i = 0; i < all.length; i++) {
-      const c = all[i];
-      const nome = String(c.nome || '').trim().toLowerCase();
+    var out: { label: string; nome: string; estado: string }[] = [];
+    for (var i = 0; i < all.length; i++) {
+      var c = all[i];
+      var nome = String(c.nome || '').trim().toLowerCase();
       if (nome.indexOf(q) === 0) out.push(c);
     }
 
     if (out.length) return out.slice(0, 50);
 
-    const out2: { label: string; nome: string; estado: string }[] = [];
-    for (let i = 0; i < all.length; i++) {
-      const c = all[i];
-      const pieces = String(c.nome || '').trim().toLowerCase().split(/\s+/);
-      for (let j = 0; j < pieces.length; j++) {
-        if (pieces[j].indexOf(q) === 0) {
-          out2.push(c);
+    var out2: { label: string; nome: string; estado: string }[] = [];
+    for (var j = 0; j < all.length; j++) {
+      var c2 = all[j];
+      var pieces = String(c2.nome || '').trim().toLowerCase().split(/\s+/);
+      for (var k = 0; k < pieces.length; k++) {
+        if (pieces[k].indexOf(q) === 0) {
+          out2.push(c2);
           break;
         }
       }
@@ -984,14 +993,12 @@ function OutraCidadeModal(props: {
       subtitle="Digite a cidade ou escolha NQ Responder"
       width={560}
     >
-      {loadErr ? (
-        <div style={styles.errorBox}>❌ {loadErr}</div>
-      ) : null}
+      {loadErr ? <div style={styles.errorBox}>❌ {loadErr}</div> : null}
 
       <input
         value={query}
         onChange={function (e) {
-          const v = e.target.value;
+          var v = e.target.value;
           setQuery(v);
           setSelected(v);
         }}
@@ -1021,7 +1028,7 @@ function OutraCidadeModal(props: {
           <div style={styles.cityItemMuted}>Carregando cidades...</div>
         ) : options.length ? (
           options.map(function (c) {
-            const active = selected === c.label;
+            var active = selected === c.label;
             return (
               <button
                 key={c.label}
@@ -1061,7 +1068,7 @@ function OutraCidadeModal(props: {
               return;
             }
 
-            const city = String(selected || query || '').trim();
+            var city = String(selected || query || '').trim();
             if (!city) {
               window.alert('Selecione uma cidade ou NQ Responder.');
               return;
@@ -1091,10 +1098,10 @@ function RowActionsModal(props: {
 }) {
   if (!props.open || !props.row) return null;
 
-  const row = props.row;
-  const tf1 = safeTel(row.TF1);
-  const tf2 = safeTel(row.TF2);
-  const isNaoAtendeuOuCaixa = row.STATUS === 'NAO_ATENDEU' || row.STATUS === 'CAIXA_POSTAL';
+  var row = props.row;
+  var tf1 = safeTel(row.TF1);
+  var tf2 = safeTel(row.TF2);
+  var isNaoAtendeuOuCaixa = row.STATUS === 'NAO_ATENDEU' || row.STATUS === 'CAIXA_POSTAL';
 
   return (
     <BasicModal
@@ -1299,49 +1306,89 @@ class AppErrorBoundary extends React.Component<
 }
 
 function MiniAppTabela() {
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState('');
-  const [lastSavedAt, setLastSavedAt] = useState('');
+  var _a = useState(false),
+    saving = _a[0],
+    setSaving = _a[1];
+  var _b = useState(''),
+    saveError = _b[0],
+    setSaveError = _b[1];
+  var _c = useState(''),
+    lastSavedAt = _c[0],
+    setLastSavedAt = _c[1];
 
-  const [payload, setPayload] = useState<PartePayload[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  var _d = useState(null as PartePayload[] | null),
+    payload = _d[0],
+    setPayload = _d[1];
+  var _e = useState(false),
+    loading = _e[0],
+    setLoading = _e[1];
+  var _f = useState(''),
+    error = _f[0],
+    setError = _f[1];
 
-  const [allRows, setAllRows] = useState<Row[]>([]);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
-  const [estadoFilter, setEstadoFilter] = useState('TODOS');
-  const [cidadeFilter, setCidadeFilter] = useState('TODAS');
-  const [regiaoFilter, setRegiaoFilter] = useState('TODAS');
-  const [page, setPage] = useState(1);
+  var _g = useState([] as Row[]),
+    allRows = _g[0],
+    setAllRows = _g[1];
+  var _h = useState('TODOS' as StatusFilter),
+    statusFilter = _h[0],
+    setStatusFilter = _h[1];
+  var _i = useState('TODOS'),
+    estadoFilter = _i[0],
+    setEstadoFilter = _i[1];
+  var _j = useState('TODAS'),
+    cidadeFilter = _j[0],
+    setCidadeFilter = _j[1];
+  var _k = useState('TODAS'),
+    regiaoFilter = _k[0],
+    setRegiaoFilter = _k[1];
+  var _l = useState(1),
+    page = _l[0],
+    setPage = _l[1];
 
-  const [toast, setToast] = useState('');
-  const toastTimeoutRef = useRef<any>(null);
+  var _m = useState(''),
+    toast = _m[0],
+    setToast = _m[1];
+  var toastTimeoutRef = useRef<any>(null);
 
-  const [dirty, setDirty] = useState<Record<string, DirtyRow>>({});
-  const saveTimeoutRef = useRef<any>(null);
+  var _n = useState({} as Record<string, DirtyRow>),
+    dirty = _n[0],
+    setDirty = _n[1];
+  var saveTimeoutRef = useRef<any>(null);
 
-  const [actionsOpen, setActionsOpen] = useState(false);
-  const [activeRowId, setActiveRowId] = useState('');
+  var _o = useState(false),
+    actionsOpen = _o[0],
+    setActionsOpen = _o[1];
+  var _p = useState(''),
+    activeRowId = _p[0],
+    setActiveRowId = _p[1];
 
-  const [retornoModalOpen, setRetornoModalOpen] = useState(false);
-  const [retornoInitial, setRetornoInitial] = useState('');
+  var _q = useState(false),
+    retornoModalOpen = _q[0],
+    setRetornoModalOpen = _q[1];
+  var _r = useState(''),
+    retornoInitial = _r[0],
+    setRetornoInitial = _r[1];
 
-  const [outraCidadeModalOpen, setOutraCidadeModalOpen] = useState(false);
-  const [outraCidadeInitial, setOutraCidadeInitial] = useState('');
+  var _s = useState(false),
+    outraCidadeModalOpen = _s[0],
+    setOutraCidadeModalOpen = _s[1];
+  var _t = useState(''),
+    outraCidadeInitial = _t[0],
+    setOutraCidadeInitial = _t[1];
 
-  const dirtyCount = useMemo(function () {
+  var dirtyCount = useMemo(function () {
     return Object.keys(dirty).length;
   }, [dirty]);
 
-  const activeRow = useMemo(function () {
-    for (let i = 0; i < allRows.length; i++) {
+  var activeRow = useMemo(function () {
+    for (var i = 0; i < allRows.length; i++) {
       if (allRows[i].id === activeRowId) return allRows[i];
     }
     return null;
   }, [allRows, activeRowId]);
 
   useEffect(function () {
-    const entregaId = getEntregaIdOnly();
+    var entregaId = getEntregaIdOnly();
     if (!entregaId) {
       setError('Sem entregaId na URL. Abra com: #/?entregaId=SEU_ID');
       return;
@@ -1351,7 +1398,7 @@ function MiniAppTabela() {
     setError('');
     setPayload(null);
 
-    const url = API_GET_ENTREGA + '?entregasId=' + encodeURIComponent(entregaId);
+    var url = API_GET_ENTREGA + '?entregasId=' + encodeURIComponent(entregaId);
 
     requestText(url)
       .then(function (resp) {
@@ -1359,7 +1406,7 @@ function MiniAppTabela() {
           if (!resp.ok) throw new Error('HTTP ' + resp.status + ' • ' + (raw || 'Sem body'));
           if (!String(raw || '').trim()) throw new Error('Servidor respondeu vazio (sem JSON).');
 
-          let data: any;
+          var data: any;
           try {
             data = JSON.parse(raw);
           } catch (e) {
@@ -1381,8 +1428,8 @@ function MiniAppTabela() {
   useEffect(function () {
     if (!payload || payload.length === 0) return;
 
-    const item = payload[0] as PartePayload;
-    const csv = String((item && item.csv) || '');
+    var item = payload[0] as PartePayload;
+    var csv = String((item && item.csv) || '');
 
     if (!csv.trim()) {
       setAllRows([]);
@@ -1390,7 +1437,7 @@ function MiniAppTabela() {
       return;
     }
 
-    const rows = csvToRows(csv);
+    var rows = csvToRows(csv);
     setAllRows(rows);
     setDirty({});
     setPage(1);
@@ -1402,20 +1449,20 @@ function MiniAppTabela() {
   }, [statusFilter, estadoFilter, cidadeFilter, regiaoFilter]);
 
   useEffect(function () {
-    const entrega_id = getEntregaIdOnly();
+    var entrega_id = getEntregaIdOnly();
     if (!entrega_id) return;
 
-    const keys = Object.keys(dirty);
+    var keys = Object.keys(dirty);
     if (!keys.length) return;
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
     saveTimeoutRef.current = setTimeout(function () {
-      const changes: any[] = [];
+      var changes: any[] = [];
 
-      for (let i = 0; i < keys.length; i++) {
-        const lineStr = keys[i];
-        const v = dirty[lineStr];
+      for (var i = 0; i < keys.length; i++) {
+        var lineStr = keys[i];
+        var v = dirty[lineStr];
         if (!v) continue;
 
         changes.push({
@@ -1466,9 +1513,9 @@ function MiniAppTabela() {
 
   function updateRow(id: string, patch: Partial<Row>) {
     setAllRows(function (prev) {
-      const out: Row[] = [];
-      for (let i = 0; i < prev.length; i++) {
-        const r = prev[i];
+      var out: Row[] = [];
+      for (var i = 0; i < prev.length; i++) {
+        var r = prev[i];
         out.push(r.id === id ? { ...r, ...patch } : r);
       }
       return out;
@@ -1484,14 +1531,14 @@ function MiniAppTabela() {
       UPDATED_AT_MS?: number;
     }
   ) {
-    const nextStatus = patch.STATUS || row.STATUS;
-    const nextObs = patch.OBSERVACAO != null ? patch.OBSERVACAO : row.OBSERVACAO || '';
-    const nextDtAlteracao = patch.DT_ALTERACAO || nowLocalStampPreciso();
-    const nextUpdatedAtMs = patch.UPDATED_AT_MS || Date.now();
+    var nextStatus = patch.STATUS || row.STATUS;
+    var nextObs = patch.OBSERVACAO != null ? patch.OBSERVACAO : row.OBSERVACAO || '';
+    var nextDtAlteracao = patch.DT_ALTERACAO || nowLocalStampPreciso();
+    var nextUpdatedAtMs = patch.UPDATED_AT_MS || Date.now();
 
     setDirty(function (prev) {
-      const lineKey = String(row.LINE);
-      const current = prev[lineKey];
+      var lineKey = String(row.LINE);
+      var current = prev[lineKey];
 
       if (current && current.UPDATED_AT_MS && current.UPDATED_AT_MS > nextUpdatedAtMs) {
         return prev;
@@ -1510,8 +1557,8 @@ function MiniAppTabela() {
   }
 
   function applyRowChange(row: Row, nextStatus: Status, nextObs: string) {
-    const stamp = nowLocalStampPreciso();
-    const updatedAtMs = Date.now();
+    var stamp = nowLocalStampPreciso();
+    var updatedAtMs = Date.now();
 
     updateRow(row.id, {
       STATUS: nextStatus,
@@ -1528,8 +1575,8 @@ function MiniAppTabela() {
   }
 
   function toggleStatusForRow(row: Row, next: Exclude<Status, 'PENDENTE'>) {
-    const newStatus: Status = row.STATUS === next ? 'PENDENTE' : next;
-    let nextObs = row.OBSERVACAO;
+    var newStatus: Status = row.STATUS === next ? 'PENDENTE' : next;
+    var nextObs = row.OBSERVACAO;
 
     if (row.STATUS === 'RETORNO' && newStatus !== 'RETORNO') nextObs = '';
     if (row.STATUS === 'OUTRA_CIDADE' && newStatus !== 'OUTRA_CIDADE') nextObs = '';
@@ -1554,13 +1601,13 @@ function MiniAppTabela() {
   }
 
   function confirmRetorno(hhmm: string) {
-    const row = activeRow;
+    var row = activeRow;
     if (!row) {
       setRetornoModalOpen(false);
       return;
     }
 
-    const cleaned = validateHHMM(hhmm);
+    var cleaned = validateHHMM(hhmm);
     if (!cleaned) {
       window.alert('Digite um horário válido.');
       return;
@@ -1577,13 +1624,13 @@ function MiniAppTabela() {
   }
 
   function confirmOutraCidade(payload2: { tipo: OutraCidadeTipo; city: string }) {
-    const row = activeRow;
+    var row = activeRow;
     if (!row) {
       setOutraCidadeModalOpen(false);
       return;
     }
 
-    const obs =
+    var obs =
       payload2.tipo === 'NQ_RESPONDER'
         ? buildOutraCidadeObs('NQ_RESPONDER')
         : buildOutraCidadeObs('MORA_VOTA', payload2.city);
@@ -1594,16 +1641,16 @@ function MiniAppTabela() {
   }
 
   function callPhoneForRow(row: Row, which: 'TF1' | 'TF2') {
-    const tel = telToDial(row[which]);
+    var tel = telToDial(row[which]);
     if (!tel) return;
     window.location.href = 'tel:' + tel;
   }
 
   function copyToClipboard(label: string, value: string) {
-    const v = String(value || '').trim();
+    var v = String(value || '').trim();
     if (!v) return;
 
-    let promise: Promise<any>;
+    var promise: Promise<any>;
 
     try {
       if ((navigator as any) && (navigator as any).clipboard && (navigator as any).clipboard.writeText) {
@@ -1630,13 +1677,13 @@ function MiniAppTabela() {
       });
   }
 
-  const geoCols = useMemo(function () {
-    let hasEstado = false;
-    let hasCidade = false;
-    let hasRegiao = false;
+  var geoCols = useMemo(function () {
+    var hasEstado = false;
+    var hasCidade = false;
+    var hasRegiao = false;
 
-    for (let i = 0; i < allRows.length; i++) {
-      const r = allRows[i];
+    for (var i = 0; i < allRows.length; i++) {
+      var r = allRows[i];
       if (String(r.ESTADO || '').trim()) hasEstado = true;
       if (String(r.CIDADE || '').trim()) hasCidade = true;
       if (String(r.REGIAO_CIDADE || '').trim()) hasRegiao = true;
@@ -1645,13 +1692,13 @@ function MiniAppTabela() {
     return { estado: hasEstado, cidade: hasCidade, regiao: hasRegiao };
   }, [allRows]);
 
-  const estadosDisponiveis = useMemo(function () {
+  var estadosDisponiveis = useMemo(function () {
     if (!geoCols.estado) return [];
-    const s: Record<string, boolean> = {};
-    const arr: string[] = [];
+    var s: Record<string, boolean> = {};
+    var arr: string[] = [];
 
-    for (let i = 0; i < allRows.length; i++) {
-      const v = String(allRows[i].ESTADO || '').trim();
+    for (var i = 0; i < allRows.length; i++) {
+      var v = String(allRows[i].ESTADO || '').trim();
       if (v && !s[v]) {
         s[v] = true;
         arr.push(v);
@@ -1664,13 +1711,13 @@ function MiniAppTabela() {
     return arr;
   }, [allRows, geoCols.estado]);
 
-  const cidadesDisponiveis = useMemo(function () {
+  var cidadesDisponiveis = useMemo(function () {
     if (!geoCols.cidade) return [];
-    const s: Record<string, boolean> = {};
-    const arr: string[] = [];
+    var s: Record<string, boolean> = {};
+    var arr: string[] = [];
 
-    for (let i = 0; i < allRows.length; i++) {
-      const v = String(allRows[i].CIDADE || '').trim();
+    for (var i = 0; i < allRows.length; i++) {
+      var v = String(allRows[i].CIDADE || '').trim();
       if (v && !s[v]) {
         s[v] = true;
         arr.push(v);
@@ -1683,13 +1730,13 @@ function MiniAppTabela() {
     return arr;
   }, [allRows, geoCols.cidade]);
 
-  const regioesDisponiveis = useMemo(function () {
+  var regioesDisponiveis = useMemo(function () {
     if (!geoCols.regiao) return [];
-    const s: Record<string, boolean> = {};
-    const arr: string[] = [];
+    var s: Record<string, boolean> = {};
+    var arr: string[] = [];
 
-    for (let i = 0; i < allRows.length; i++) {
-      const v = String(allRows[i].REGIAO_CIDADE || '').trim();
+    for (var i = 0; i < allRows.length; i++) {
+      var v = String(allRows[i].REGIAO_CIDADE || '').trim();
       if (v && !s[v]) {
         s[v] = true;
         arr.push(v);
@@ -1702,11 +1749,11 @@ function MiniAppTabela() {
     return arr;
   }, [allRows, geoCols.regiao]);
 
-  const filteredRows = useMemo(function () {
-    const out: Row[] = [];
+  var filteredRows = useMemo(function () {
+    var out: Row[] = [];
 
-    for (let i = 0; i < allRows.length; i++) {
-      const r = allRows[i];
+    for (var i = 0; i < allRows.length; i++) {
+      var r = allRows[i];
 
       if (geoCols.estado && estadoFilter !== 'TODOS') {
         if (String(r.ESTADO || '').trim() !== estadoFilter) continue;
@@ -1732,34 +1779,34 @@ function MiniAppTabela() {
     return out;
   }, [allRows, statusFilter, estadoFilter, cidadeFilter, regiaoFilter, geoCols]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  var totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
 
-  const pageRows = useMemo(function () {
-    const from = (page - 1) * PAGE_SIZE;
+  var pageRows = useMemo(function () {
+    var from = (page - 1) * PAGE_SIZE;
     return filteredRows.slice(from, from + PAGE_SIZE);
   }, [filteredRows, page]);
 
-  const pendentes = useMemo(function () {
-    let total = 0;
-    for (let i = 0; i < filteredRows.length; i++) {
+  var pendentes = useMemo(function () {
+    var total = 0;
+    for (var i = 0; i < filteredRows.length; i++) {
       if (filteredRows[i].STATUS === 'PENDENTE') total++;
     }
     return total;
   }, [filteredRows]);
 
-  const tratados = useMemo(function () {
-    let total = 0;
-    for (let i = 0; i < filteredRows.length; i++) {
+  var tratados = useMemo(function () {
+    var total = 0;
+    for (var i = 0; i < filteredRows.length; i++) {
       if (filteredRows[i].STATUS !== 'PENDENTE') total++;
     }
     return total;
   }, [filteredRows]);
 
-  const hasData = allRows.length > 0;
+  var hasData = allRows.length > 0;
 
-  const hintLink = useMemo(function () {
-    const origin = getLocationOriginSafe();
-    const path = window.location.pathname || '';
+  var hintLink = useMemo(function () {
+    var origin = getLocationOriginSafe();
+    var path = window.location.pathname || '';
     return origin + path + '#/?entregaId=SEU_ENTREGA_ID';
   }, []);
 
@@ -1848,9 +1895,7 @@ function MiniAppTabela() {
               {loading ? 'Buscando o CSV no servidor.' : 'Abra com entregaId para carregar. Exemplo:'}
             </div>
 
-            {!loading ? (
-              <div style={styles.hintBox}>{hintLink}</div>
-            ) : null}
+            {!loading ? <div style={styles.hintBox}>{hintLink}</div> : null}
 
             {error ? (
               <div style={styles.errorBox}>
@@ -2003,7 +2048,7 @@ function MiniAppTabela() {
                 <tbody>
                   {pageRows.length ? (
                     pageRows.map(function (r) {
-                      const isSelected = actionsOpen && activeRowId === r.id;
+                      var isSelected = actionsOpen && activeRowId === r.id;
 
                       return (
                         <tr

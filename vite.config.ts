@@ -22,13 +22,17 @@ export default defineConfig({
         'iOS >= 10',
       ],
       additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
+      renderLegacyChunks: true,
+      modernPolyfills: true,
     }),
     tsconfigPaths(),
     process.env.HTTPS ? mkcert() : undefined,
   ].filter(Boolean),
   build: {
     target: 'es2015',
-    minify: 'terser',
+    minify: false,
+    cssCodeSplit: false,
+    sourcemap: false,
   },
   publicDir: './public',
   server: {
