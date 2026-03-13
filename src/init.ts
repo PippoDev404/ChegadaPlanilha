@@ -1,8 +1,6 @@
 import {
   setDebug,
-  themeParams,
   initData,
-  viewport,
   init as initSDK,
   mockTelegramEnv,
   retrieveLaunchParams,
@@ -14,6 +12,15 @@ import {
 
 type ThemeParamsEvent = Events['theme_changed']['theme_params'];
 
+function isOldAndroid() {
+  try {
+    var ua = navigator.userAgent || '';
+    return /Android 5/i.test(ua);
+  } catch (e) {
+    return false;
+  }
+}
+
 export async function init(options: {
   debug: boolean;
   eruda: boolean;
@@ -23,17 +30,19 @@ export async function init(options: {
 
   try {
     initSDK();
+    console.log('initSDK ok');
   } catch (e) {
     console.error('Erro em initSDK()', e);
   }
 
-  // Desligue eruda em tablet antigo
-  if (options.eruda) {
+  // desligado por padrão em aparelho antigo
+  if (options.eruda && !isOldAndroid()) {
     try {
       const mod = await import('eruda');
       const eruda = mod.default;
       eruda.init();
       eruda.position({ x: window.innerWidth - 50, y: 0 });
+      console.log('eruda ok');
     } catch (e) {
       console.error('Erro ao iniciar eruda', e);
     }
@@ -49,12 +58,21 @@ export async function init(options: {
             let tp: ThemeParamsEvent = {};
 
             if (firstThemeSent) {
-              tp = themeParams.state() as ThemeParamsEvent;
+              try {
+                const launch = retrieveLaunchParams();
+                tp = (launch.tgWebAppThemeParams || {}) as ThemeParamsEvent;
+              } catch (e) {
+                tp = {};
+              }
             } else {
               firstThemeSent = true;
 
-              const fromLaunch = retrieveLaunchParams().tgWebAppThemeParams;
-              if (fromLaunch) tp = fromLaunch as ThemeParamsEvent;
+              try {
+                const fromLaunch = retrieveLaunchParams().tgWebAppThemeParams;
+                if (fromLaunch) tp = fromLaunch as ThemeParamsEvent;
+              } catch (e) {
+                tp = {};
+              }
             }
 
             return emitEvent('theme_changed', { theme_params: tp });
@@ -72,62 +90,39 @@ export async function init(options: {
           next();
         },
       });
+
+      console.log('mockTelegramEnv ok');
     } catch (e) {
       console.error('Erro no mockTelegramEnv()', e);
     }
   }
 
   try {
-    backButton.mount.ifAvailable();
+    if (backButton.mount && backButton.mount.ifAvailable) {
+      backButton.mount.ifAvailable();
+      console.log('backButton ok');
+    }
   } catch (e) {
     console.error('Erro em backButton.mount.ifAvailable()', e);
   }
 
   try {
     initData.restore();
+    console.log('initData.restore ok');
   } catch (e) {
     console.error('Erro em initData.restore()', e);
   }
 
   try {
-    if (miniApp.mount.isAvailable()) {
-      try {
-        themeParams.mount();
-      } catch (e) {
-        console.error('Erro em themeParams.mount()', e);
-      }
-
+    if (miniApp.mount && miniApp.mount.isAvailable && miniApp.mount.isAvailable()) {
       try {
         miniApp.mount();
+        console.log('miniApp.mount ok');
       } catch (e) {
         console.error('Erro em miniApp.mount()', e);
-      }
-
-      try {
-        themeParams.bindCssVars();
-      } catch (e) {
-        console.error('Erro em themeParams.bindCssVars()', e);
       }
     }
   } catch (e) {
     console.error('Erro no bloco miniApp.mount', e);
-  }
-
-  try {
-    if (viewport.mount.isAvailable()) {
-      try {
-        await viewport.mount();
-      } catch (e) {
-        console.error('Erro em await viewport.mount()', e);
-      }
-
-      try {
-        viewport.bindCssVars();
-      } catch (e) {
-        console.error('Erro em viewport.bindCssVars()', e);
-      }
-    }
-  } catch (e) {
-    console.error('Erro no bloco viewport.mount', e);
   }
 }
