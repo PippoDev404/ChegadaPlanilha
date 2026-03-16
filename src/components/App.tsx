@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 type Status =
   | 'PENDENTE'
@@ -16,8 +16,6 @@ type PartePayload = {
   csv?: string;
   chave_parte?: string;
 };
-
-type OutraCidadeTipo = 'MORA_VOTA' | 'NQ_RESPONDER';
 
 type Row = {
   id: string;
@@ -42,74 +40,57 @@ type DirtyRow = {
 
 type StatusFilter = 'TODOS' | 'PENDENTES' | Status;
 
-type IbgeMunicipio = {
-  id: number;
-  nome: string;
-  microrregiao?: {
-    mesorregiao?: {
-      UF?: { sigla?: string; nome?: string };
-    };
-  };
-};
-
 type SimpleResponse = {
   ok: boolean;
   status: number;
   text: () => Promise<string>;
 };
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 15;
 
 const API_GET_ENTREGA = 'https://n8n.srv962474.hstgr.cloud/webhook/entregas';
 const API_SAVE_PARTE = 'https://n8n.srv962474.hstgr.cloud/webhook/parte/salvar';
-const IBGE_MUNICIPIOS_API = 'https://servicodados.ibge.gov.br/api/v1/localidades/municipios';
 
 const COLORS = {
-  surface: '#FFFFFF',
-  surface2: '#FFFFFF',
-  surfaceMuted: '#F3F4F6',
-  text: '#000000',
-  textMuted: '#374151',
-  border: '#D1D5DB',
+  bg: '#f3f4f6',
+  card: '#ffffff',
+  card2: '#fafafa',
+  text: '#111111',
+  muted: '#666666',
+  border: '#d1d5db',
   primary: '#000000',
-  primaryText: '#FFFFFF',
-  secondary: '#FFFFFF',
-  secondaryText: '#000000',
-  success: '#16A34A',
-  warning: '#F59E0B',
-  danger: '#EF4444',
-  orange: '#F97316',
-  blueDark: '#1E3A8A',
-  purple: '#7C3AED',
-  teal: '#0F766E',
-  pink: '#BE185D',
-  shadow: '0 8px 22px rgba(0,0,0,.08)',
-  radius: 14,
+  primaryText: '#ffffff',
+  success: '#16a34a',
+  warning: '#f59e0b',
+  danger: '#ef4444',
+  info: '#2563eb',
+  orange: '#ea580c',
+  purple: '#7c3aed',
+  teal: '#0f766e',
 };
 
 const globalCss = `
 html, body, #root {
   height: 100%;
 }
-body{
-  font-family: Arial, Helvetica, sans-serif;
-  background: #F3F4F6;
+body {
   margin: 0;
   padding: 0;
-  color: #000000;
+  background: ${COLORS.bg};
+  color: ${COLORS.text};
+  font-family: Arial, Helvetica, sans-serif;
 }
-*{
+* {
   box-sizing: border-box;
 }
-button, input, select, textarea{
+button, input, select, textarea {
   font-family: inherit;
 }
-button:disabled{
-  opacity: .55;
-  cursor: not-allowed !important;
+button {
+  -webkit-tap-highlight-color: transparent;
 }
-table{
-  border-collapse: collapse;
+input, select, textarea {
+  font-size: 16px;
 }
 `;
 
@@ -117,6 +98,23 @@ function zeroPad(value: number | string, size: number) {
   var text = String(value == null ? '' : value);
   if ((text as any).padStart) return (text as any).padStart(size, '0');
   return ('000000000000' + text).slice(-size);
+}
+
+function nowLocalStampSemMs() {
+  var d = new Date();
+  return (
+    zeroPad(d.getDate(), 2) +
+    '/' +
+    zeroPad(d.getMonth() + 1, 2) +
+    '/' +
+    d.getFullYear() +
+    ' ' +
+    zeroPad(d.getHours(), 2) +
+    ':' +
+    zeroPad(d.getMinutes(), 2) +
+    ':' +
+    zeroPad(d.getSeconds(), 2)
+  );
 }
 
 function safeNormalizeText(value: string) {
@@ -213,23 +211,69 @@ function telToDial(v: string) {
   return '0' + digits;
 }
 
-function nowLocalStampPreciso() {
-  var d = new Date();
-  return (
-    zeroPad(d.getDate(), 2) +
-    '/' +
-    zeroPad(d.getMonth() + 1, 2) +
-    '/' +
-    d.getFullYear() +
-    ' ' +
-    zeroPad(d.getHours(), 2) +
-    ':' +
-    zeroPad(d.getMinutes(), 2) +
-    ':' +
-    zeroPad(d.getSeconds(), 2) +
-    '.' +
-    zeroPad(d.getMilliseconds(), 3)
-  );
+function supportsFetch() {
+  try {
+    return typeof fetch !== 'undefined';
+  } catch (e) {
+    return false;
+  }
+}
+
+function xhrRequest(url: string, options?: { method?: string; headers?: Record<string, string>; body?: string }) {
+  return new Promise<SimpleResponse>(function (resolve, reject) {
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open(options && options.method ? options.method : 'GET', url, true);
+
+      var headers = (options && options.headers) || {};
+      var keys = Object.keys(headers);
+      for (var i = 0; i < keys.length; i++) {
+        xhr.setRequestHeader(keys[i], headers[keys[i]]);
+      }
+
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState !== 4) return;
+
+        var responseText = xhr.responseText || '';
+        resolve({
+          ok: xhr.status >= 200 && xhr.status < 300,
+          status: xhr.status,
+          text: function () {
+            return Promise.resolve(responseText);
+          },
+        });
+      };
+
+      xhr.onerror = function () {
+        reject(new Error('Falha de rede'));
+      };
+
+      xhr.send(options && options.body ? options.body : null);
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+function requestText(url: string, options?: { method?: string; headers?: Record<string, string>; body?: string }) {
+  if (supportsFetch()) {
+    return fetch(url, {
+      method: options && options.method ? options.method : 'GET',
+      headers: options && options.headers ? options.headers : undefined,
+      body: options && options.body ? options.body : undefined,
+      cache: 'no-store',
+    }).then(function (resp) {
+      return {
+        ok: resp.ok,
+        status: resp.status,
+        text: function () {
+          return resp.text();
+        },
+      } as SimpleResponse;
+    });
+  }
+
+  return xhrRequest(url, options);
 }
 
 function normalizeHeader(h: string) {
@@ -285,36 +329,12 @@ function sanitizeStatus(raw: string): Status {
     return 'NAO_PODE_FAZER_PESQUISA';
   }
 
-  if (s === 'NUMERO_NAO_EXISTE' || s === 'NUMERO_INEXISTENTE') {
-    return 'NUMERO_NAO_EXISTE';
-  }
-
-  if (s === 'REMOVER_DA_LISTA' || s === 'REMOVER_LISTA') {
-    return 'REMOVER_DA_LISTA';
-  }
-
+  if (s === 'NUMERO_NAO_EXISTE' || s === 'NUMERO_INEXISTENTE') return 'NUMERO_NAO_EXISTE';
+  if (s === 'REMOVER_DA_LISTA' || s === 'REMOVER_LISTA') return 'REMOVER_DA_LISTA';
   if (s === 'RECUSA') return 'RECUSA';
   if (s === 'PENDENTE') return 'PENDENTE';
 
   return 'PENDENTE';
-}
-
-function buildOutraCidadeObs(tipo: OutraCidadeTipo, valor?: string) {
-  var v = String(valor || '').trim();
-  if (tipo === 'NQ_RESPONDER') return 'NQ_RESPONDER';
-  return v || 'MORA_VOTA';
-}
-
-function outraCidadeFromObs(obs: string) {
-  var t = String(obs || '').trim();
-  if (t === 'NQ_RESPONDER') return '';
-  return t;
-}
-
-function outraCidadeLabel(obs: string) {
-  var t = String(obs || '').trim();
-  if (t === 'NQ_RESPONDER') return 'MORA/VOTA EM OUTRA CIDADE • NQ RESPONDER';
-  return t ? 'MORA/VOTA EM OUTRA CIDADE • ' + t : 'MORA/VOTA EM OUTRA CIDADE';
 }
 
 function retornoLabelFromObs(obs: string) {
@@ -325,18 +345,18 @@ function retornoLabelFromObs(obs: string) {
   return m && m[1] ? m[1] : '';
 }
 
-function obsToSave(status: Status, obs: string) {
-  var t = String(obs || '').trim();
+function validateHHMM(value: string) {
+  var cleaned = String(value || '').trim();
+  if (!/^\d{1,2}:\d{2}$/.test(cleaned)) return '';
+  var parts = cleaned.split(':');
+  var hh = Number(parts[0]);
+  var mm = Number(parts[1]);
 
-  if (status === 'OUTRA_CIDADE') return t;
+  if (isNaN(hh) || isNaN(mm)) return '';
+  if (hh < 0 || hh > 23) return '';
+  if (mm < 0 || mm > 59) return '';
 
-  if (status === 'RETORNO') {
-    var hhmm = retornoLabelFromObs(t) || t.replace(/^RETORNO\s*[-–—]?\s*/i, '').trim();
-    return hhmm;
-  }
-
-  if (status === 'NAO_PODE_FAZER_PESQUISA') return '';
-  return t;
+  return zeroPad(hh, 2) + ':' + zeroPad(mm, 2);
 }
 
 function parseCsv(csv: string): { headers: string[]; rows: Record<string, string>[] } {
@@ -349,6 +369,7 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
 
   for (var i = 0; i < text.length; i++) {
     var ch = text.charAt(i);
+
     if (ch === '"') {
       var next = text.charAt(i + 1);
       if (inQuotes && next === '"') {
@@ -378,6 +399,7 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
 
     for (var j = 0; j < line.length; j++) {
       var ch2 = line.charAt(j);
+
       if (ch2 === '"') {
         var next2 = line.charAt(j + 1);
         if (q && next2 === '"') {
@@ -500,7 +522,7 @@ function statusText(row: Row) {
   if (s === 'NUMERO_NAO_EXISTE') return 'Nº NÃO EXISTE';
   if (s === 'RECUSA') return 'RECUSA';
   if (s === 'NAO_PODE_FAZER_PESQUISA') return 'NÃO PODE FAZER A PESQUISA';
-  if (s === 'OUTRA_CIDADE') return outraCidadeLabel(row.OBSERVACAO);
+  if (s === 'OUTRA_CIDADE') return row.OBSERVACAO ? 'OUTRA CIDADE • ' + row.OBSERVACAO : 'OUTRA CIDADE';
 
   if (s === 'RETORNO') {
     var hhmm = retornoLabelFromObs(row.OBSERVACAO);
@@ -511,161 +533,16 @@ function statusText(row: Row) {
   return 'PENDENTE';
 }
 
-function statusVars(s: Status) {
-  switch (s) {
-    case 'PESQUISA_FEITA':
-      return { bd: COLORS.success, bg: 'rgba(22,163,74,.20)' };
-    case 'OUTRA_CIDADE':
-      return { bd: COLORS.orange, bg: 'rgba(249,115,22,.18)' };
-    case 'NAO_PODE_FAZER_PESQUISA':
-      return { bd: COLORS.teal, bg: 'rgba(15,118,110,.15)' };
-    case 'RETORNO':
-      return { bd: COLORS.blueDark, bg: 'rgba(30,58,138,.15)' };
-    case 'NUMERO_NAO_EXISTE':
-      return { bd: COLORS.danger, bg: 'rgba(239,68,68,.18)' };
-    case 'RECUSA':
-      return { bd: COLORS.pink, bg: 'rgba(190,24,93,.12)' };
-    case 'NAO_ATENDEU':
-    case 'CAIXA_POSTAL':
-      return { bd: COLORS.warning, bg: 'rgba(245,158,11,.18)' };
-    case 'REMOVER_DA_LISTA':
-      return { bd: COLORS.purple, bg: 'rgba(124,58,237,.14)' };
-    default:
-      return { bd: COLORS.border, bg: 'rgba(0,0,0,.04)' };
-  }
-}
-
-function rowBg(status: Status) {
-  switch (status) {
-    case 'NAO_ATENDEU':
-    case 'CAIXA_POSTAL':
-      return 'rgba(245,158,11,.14)';
-    case 'OUTRA_CIDADE':
-      return 'rgba(249,115,22,.14)';
-    case 'NAO_PODE_FAZER_PESQUISA':
-      return 'rgba(15,118,110,.10)';
-    case 'PESQUISA_FEITA':
-      return 'rgba(22,163,74,.12)';
-    case 'RETORNO':
-      return 'rgba(30,58,138,.12)';
-    case 'NUMERO_NAO_EXISTE':
-      return 'rgba(239,68,68,.12)';
-    case 'RECUSA':
-      return 'rgba(190,24,93,.08)';
-    case 'REMOVER_DA_LISTA':
-      return 'rgba(124,58,237,.10)';
-    default:
-      return 'transparent';
-  }
-}
-
-function getUfNomeFromMunicipio(m: IbgeMunicipio) {
-  return (
-    (m &&
-      m.microrregiao &&
-      m.microrregiao.mesorregiao &&
-      m.microrregiao.mesorregiao.UF &&
-      (m.microrregiao.mesorregiao.UF.nome || m.microrregiao.mesorregiao.UF.sigla)) ||
-    ''
-  );
-}
-
-function cityLabel(nome: string, estadoNome: string) {
-  var n = String(nome || '').trim();
-  var e = String(estadoNome || '').trim();
-  if (!n) return '';
-  return e ? n + '/' + e : n;
-}
-
-function getLocationOriginSafe() {
-  try {
-    if (window.location.origin) return window.location.origin;
-  } catch (e) {}
-
-  try {
-    return window.location.protocol + '//' + window.location.host;
-  } catch (e) {}
-
-  return '';
-}
-
-function supportsFetch() {
-  try {
-    return typeof fetch !== 'undefined';
-  } catch (e) {
-    return false;
-  }
-}
-
-function xhrRequest(url: string, options?: { method?: string; headers?: Record<string, string>; body?: string }) {
-  return new Promise<SimpleResponse>(function (resolve, reject) {
-    try {
-      var xhr = new XMLHttpRequest();
-      xhr.open(options && options.method ? options.method : 'GET', url, true);
-
-      var headers = (options && options.headers) || {};
-      var keys = Object.keys(headers);
-      for (var i = 0; i < keys.length; i++) {
-        xhr.setRequestHeader(keys[i], headers[keys[i]]);
-      }
-
-      xhr.onreadystatechange = function () {
-        if (xhr.readyState !== 4) return;
-
-        var responseText = xhr.responseText || '';
-        resolve({
-          ok: xhr.status >= 200 && xhr.status < 300,
-          status: xhr.status,
-          text: function () {
-            return Promise.resolve(responseText);
-          },
-        });
-      };
-
-      xhr.onerror = function () {
-        reject(new Error('Falha de rede'));
-      };
-
-      xhr.send(options && options.body ? options.body : null);
-    } catch (e) {
-      reject(e);
-    }
-  });
-}
-
-function requestText(url: string, options?: { method?: string; headers?: Record<string, string>; body?: string }) {
-  if (supportsFetch()) {
-    return fetch(url, {
-      method: options && options.method ? options.method : 'GET',
-      headers: options && options.headers ? options.headers : undefined,
-      body: options && options.body ? options.body : undefined,
-      cache: 'no-store',
-    }).then(function (resp) {
-      return {
-        ok: resp.ok,
-        status: resp.status,
-        text: function () {
-          return resp.text();
-        },
-      } as SimpleResponse;
-    });
-  }
-
-  return xhrRequest(url, options);
-}
-
-function validateHHMM(value: string) {
-  var cleaned = String(value || '').trim();
-  if (!/^\d{1,2}:\d{2}$/.test(cleaned)) return '';
-  var parts = cleaned.split(':');
-  var hh = Number(parts[0]);
-  var mm = Number(parts[1]);
-
-  if (isNaN(hh) || isNaN(mm)) return '';
-  if (hh < 0 || hh > 23) return '';
-  if (mm < 0 || mm > 59) return '';
-
-  return zeroPad(hh, 2) + ':' + zeroPad(mm, 2);
+function statusColor(status: Status) {
+  if (status === 'PESQUISA_FEITA') return COLORS.success;
+  if (status === 'NAO_ATENDEU' || status === 'CAIXA_POSTAL') return COLORS.warning;
+  if (status === 'NUMERO_NAO_EXISTE') return COLORS.danger;
+  if (status === 'RECUSA') return '#be185d';
+  if (status === 'RETORNO') return COLORS.info;
+  if (status === 'OUTRA_CIDADE') return COLORS.orange;
+  if (status === 'NAO_PODE_FAZER_PESQUISA') return COLORS.teal;
+  if (status === 'REMOVER_DA_LISTA') return COLORS.purple;
+  return COLORS.border;
 }
 
 function fallbackCopyText(text: string) {
@@ -700,717 +577,360 @@ function fallbackCopyText(text: string) {
   });
 }
 
-function StatusPill(props: { row: Row }) {
-  var c = statusVars(props.row.STATUS);
+function obsToSave(status: Status, obs: string) {
+  var t = String(obs || '').trim();
 
-  return (
-    <span
-      style={{
-        display: 'inline-block',
-        padding: '4px 8px',
-        borderRadius: 999,
-        border: '1px solid ' + c.bd,
-        background: c.bg,
-        fontWeight: 700,
-        fontSize: 11,
-        color: COLORS.text,
-      }}
-    >
-      {statusText(props.row)}
-    </span>
-  );
+  if (status === 'RETORNO') {
+    return retornoLabelFromObs(t) || t;
+  }
+
+  if (status === 'NAO_PODE_FAZER_PESQUISA') return '';
+  return t;
 }
 
-function ActionButton(props: {
-  active: boolean;
-  kind: 'danger' | 'warning' | 'success' | 'blueDark' | 'orange' | 'purple' | 'teal' | 'pink';
-  children: React.ReactNode;
+function getLocationOriginSafe() {
+  try {
+    if (window.location.origin) return window.location.origin;
+  } catch (e) {}
+
+  try {
+    return window.location.protocol + '//' + window.location.host;
+  } catch (e) {}
+
+  return '';
+}
+
+function countRowsByStatus(rows: Row[], target: Status | 'PENDENTE_ONLY') {
+  var total = 0;
+  for (var i = 0; i < rows.length; i++) {
+    if (target === 'PENDENTE_ONLY') {
+      if (rows[i].STATUS === 'PENDENTE') total++;
+    } else {
+      if (rows[i].STATUS === target) total++;
+    }
+  }
+  return total;
+}
+
+function ActionBtn(props: {
+  label: string;
   onClick: () => void;
+  color?: string;
+  active?: boolean;
 }) {
-  var kind = props.kind;
-
-  var base =
-    kind === 'danger'
-      ? { border: '1px solid rgba(239,68,68,.70)', background: 'rgba(239,68,68,.18)' }
-      : kind === 'orange'
-      ? { border: '1px solid rgba(249,115,22,.70)', background: 'rgba(249,115,22,.18)' }
-      : kind === 'warning'
-      ? { border: '1px solid rgba(245,158,11,.70)', background: 'rgba(245,158,11,.18)' }
-      : kind === 'blueDark'
-      ? { border: '1px solid rgba(30,58,138,.70)', background: 'rgba(30,58,138,.16)' }
-      : kind === 'purple'
-      ? { border: '1px solid rgba(124,58,237,.70)', background: 'rgba(124,58,237,.14)' }
-      : kind === 'teal'
-      ? { border: '1px solid rgba(15,118,110,.70)', background: 'rgba(15,118,110,.14)' }
-      : kind === 'pink'
-      ? { border: '1px solid rgba(190,24,93,.70)', background: 'rgba(190,24,93,.12)' }
-      : { border: '1px solid rgba(22,163,74,.70)', background: 'rgba(22,163,74,.16)' };
-
   return (
     <button
       onClick={props.onClick}
       style={{
-        ...styles.btnAction,
-        ...base,
-        ...(props.active ? styles.btnActive : {}),
+        ...styles.actionBtn,
+        borderColor: props.color || COLORS.border,
+        background: props.active ? '#f3f4f6' : '#ffffff',
       }}
     >
-      {props.children}
+      {props.label}
     </button>
   );
 }
 
-function MiniTel(props: {
-  label: string;
-  value: string;
-  disabled: boolean;
-  onClick: () => void;
-  onCopy: () => void;
+function RowCard(props: {
+  row: Row;
+  expanded: boolean;
+  onToggle: () => void;
+  onApplyStatus: (row: Row, status: Status) => void;
+  onSetRetorno: (row: Row, value: string) => void;
+  onSetOutraCidade: (row: Row, value: string) => void;
+  onCall: (row: Row, which: 'TF1' | 'TF2') => void;
+  onCopy: (label: string, value: string) => void;
 }) {
-  var enabled = !props.disabled;
+  var row = props.row;
+  var retornoAtual = row.STATUS === 'RETORNO' ? retornoLabelFromObs(row.OBSERVACAO) : '';
+  var outraCidadeAtual = row.STATUS === 'OUTRA_CIDADE' ? row.OBSERVACAO : '';
 
   return (
-    <div>
-      <button
-        disabled={!enabled}
-        onClick={props.onClick}
-        style={{
-          ...styles.btn,
-          ...styles.btnPrimary,
-          background: enabled ? COLORS.primary : COLORS.surfaceMuted,
-          color: enabled ? COLORS.primaryText : COLORS.textMuted,
-        }}
-      >
-        {'Ligar ' + props.label}
-      </button>
-
-      <button
-        disabled={!props.value}
-        onClick={props.onCopy}
-        style={{
-          ...styles.btn,
-          ...styles.btnPrimary,
-          background: props.value ? COLORS.primary : COLORS.surfaceMuted,
-          color: props.value ? COLORS.primaryText : COLORS.textMuted,
-        }}
-      >
-        {'Copiar ' + props.label}
-      </button>
-    </div>
-  );
-}
-
-function BasicModal(props: {
-  open: boolean;
-  title: string;
-  subtitle?: string;
-  width?: number;
-  children: React.ReactNode;
-  onClose: () => void;
-}) {
-  if (!props.open) return null;
-
-  return (
-    <div style={stylesModal.overlay} onClick={props.onClose}>
-      <div
-        style={{
-          ...stylesModal.box,
-          maxWidth: props.width || 420,
-        }}
-        onClick={function (e) {
-          e.stopPropagation();
-        }}
-      >
-        <div style={stylesModal.header}>
-          <div style={stylesModal.title}>{props.title}</div>
-          {props.subtitle ? <div style={stylesModal.sub}>{props.subtitle}</div> : null}
-        </div>
-        <div style={{ padding: 12 }}>{props.children}</div>
-      </div>
-    </div>
-  );
-}
-
-function RetornoModal(props: {
-  open: boolean;
-  initialValue: string;
-  onCancel: () => void;
-  onConfirm: (hhmm: string) => void;
-}) {
-  var _a = useState(props.initialValue || ''),
-    value = _a[0],
-    setValue = _a[1];
-
-  useEffect(function () {
-    setValue(props.initialValue || '');
-  }, [props.initialValue, props.open]);
-
-  return (
-    <BasicModal
-      open={props.open}
-      onClose={props.onCancel}
-      title="Agendar retorno"
-      subtitle="Digite no formato HH:MM"
-      width={420}
+    <div
+      style={{
+        ...styles.rowCard,
+        borderColor: statusColor(row.STATUS),
+      }}
     >
-      <input
-        type="text"
-        inputMode="numeric"
-        value={value}
-        onChange={function (e) {
-          setValue(e.target.value);
-        }}
-        placeholder="Ex: 14:30"
-        style={stylesModal.input}
-      />
+      <button onClick={props.onToggle} style={styles.rowHeaderBtn}>
+        <div style={styles.rowHeaderTop}>
+          <div style={styles.rowId}>IDP {row.IDP}</div>
+          <div
+            style={{
+              ...styles.statusBadge,
+              borderColor: statusColor(row.STATUS),
+            }}
+          >
+            {statusText(row)}
+          </div>
+        </div>
 
-      <div style={stylesModal.rowBtns}>
-        <button style={styles.btn} onClick={props.onCancel}>
-          Cancelar
-        </button>
-        <button
-          style={{ ...styles.btn, ...styles.btnPrimary }}
-          onClick={function () {
-            var cleaned = validateHHMM(value);
-            if (!cleaned) {
-              window.alert('Digite um horário válido no formato HH:MM.');
-              return;
-            }
-            props.onConfirm(cleaned);
-          }}
-        >
-          Confirmar
-        </button>
-      </div>
-    </BasicModal>
+        <div style={styles.rowHeaderBottom}>
+          <div style={styles.rowLine}>Linha: {row.LINE}</div>
+          <div style={styles.rowPhones}>
+            {row.TF1 ? 'TF1: ' + row.TF1 : 'TF1: —'}{' '}
+            {' • '}
+            {row.TF2 ? 'TF2: ' + row.TF2 : 'TF2: —'}
+          </div>
+        </div>
+
+        {(row.CIDADE || row.ESTADO || row.REGIAO_CIDADE) ? (
+          <div style={styles.rowGeo}>
+            {row.CIDADE || '—'}
+            {row.ESTADO ? ' / ' + row.ESTADO : ''}
+            {row.REGIAO_CIDADE ? ' • ' + row.REGIAO_CIDADE : ''}
+          </div>
+        ) : null}
+      </button>
+
+      {props.expanded ? (
+        <div style={styles.rowBody}>
+          <div style={styles.sectionTitle}>Ações rápidas</div>
+
+          <div style={styles.btnGrid}>
+            <ActionBtn
+              label="Pesquisa feita"
+              color={COLORS.success}
+              active={row.STATUS === 'PESQUISA_FEITA'}
+              onClick={function () {
+                props.onApplyStatus(row, 'PESQUISA_FEITA');
+              }}
+            />
+            <ActionBtn
+              label="Não atendeu"
+              color={COLORS.warning}
+              active={row.STATUS === 'NAO_ATENDEU'}
+              onClick={function () {
+                props.onApplyStatus(row, 'NAO_ATENDEU');
+              }}
+            />
+            <ActionBtn
+              label="Nº não existe"
+              color={COLORS.danger}
+              active={row.STATUS === 'NUMERO_NAO_EXISTE'}
+              onClick={function () {
+                props.onApplyStatus(row, 'NUMERO_NAO_EXISTE');
+              }}
+            />
+            <ActionBtn
+              label="Recusa"
+              color={'#be185d'}
+              active={row.STATUS === 'RECUSA'}
+              onClick={function () {
+                props.onApplyStatus(row, 'RECUSA');
+              }}
+            />
+            <ActionBtn
+              label="Não pode pesquisar"
+              color={COLORS.teal}
+              active={row.STATUS === 'NAO_PODE_FAZER_PESQUISA'}
+              onClick={function () {
+                props.onApplyStatus(row, 'NAO_PODE_FAZER_PESQUISA');
+              }}
+            />
+            <ActionBtn
+              label="Remover da lista"
+              color={COLORS.purple}
+              active={row.STATUS === 'REMOVER_DA_LISTA'}
+              onClick={function () {
+                props.onApplyStatus(row, 'REMOVER_DA_LISTA');
+              }}
+            />
+            <ActionBtn
+              label="Voltar para pendente"
+              active={row.STATUS === 'PENDENTE'}
+              onClick={function () {
+                props.onApplyStatus(row, 'PENDENTE');
+              }}
+            />
+          </div>
+
+          <div style={styles.sectionTitle}>Retorno</div>
+          <div style={styles.inlineRow}>
+            <input
+              type="text"
+              inputMode="numeric"
+              defaultValue={retornoAtual}
+              placeholder="HH:MM"
+              style={styles.input}
+              id={'retorno-' + row.id}
+            />
+            <button
+              style={styles.primaryBtn}
+              onClick={function () {
+                var el = document.getElementById('retorno-' + row.id) as HTMLInputElement | null;
+                var val = el ? el.value : '';
+                props.onSetRetorno(row, val);
+              }}
+            >
+              Salvar retorno
+            </button>
+          </div>
+
+          <div style={styles.sectionTitle}>Mora/Vota em outra cidade</div>
+          <div style={styles.inlineRow}>
+            <input
+              type="text"
+              defaultValue={outraCidadeAtual}
+              placeholder="Digite a cidade ou NQ_RESPONDER"
+              style={styles.input}
+              id={'cidade-' + row.id}
+            />
+            <button
+              style={styles.primaryBtn}
+              onClick={function () {
+                var el = document.getElementById('cidade-' + row.id) as HTMLInputElement | null;
+                var val = el ? el.value : '';
+                props.onSetOutraCidade(row, val);
+              }}
+            >
+              Salvar cidade
+            </button>
+          </div>
+
+          <div style={styles.sectionTitle}>Telefone / cópia</div>
+          <div style={styles.btnGrid}>
+            <button
+              style={styles.primaryBtn}
+              disabled={!row.TF1}
+              onClick={function () {
+                props.onCall(row, 'TF1');
+              }}
+            >
+              Ligar TF1
+            </button>
+            <button
+              style={styles.primaryBtn}
+              disabled={!row.TF2}
+              onClick={function () {
+                props.onCall(row, 'TF2');
+              }}
+            >
+              Ligar TF2
+            </button>
+            <button
+              style={styles.secondaryBtn}
+              disabled={!row.TF1}
+              onClick={function () {
+                props.onCopy('TF1', row.TF1);
+              }}
+            >
+              Copiar TF1
+            </button>
+            <button
+              style={styles.secondaryBtn}
+              disabled={!row.TF2}
+              onClick={function () {
+                props.onCopy('TF2', row.TF2);
+              }}
+            >
+              Copiar TF2
+            </button>
+            <button
+              style={styles.secondaryBtn}
+              onClick={function () {
+                props.onCopy('IDP', row.IDP);
+              }}
+            >
+              Copiar IDP
+            </button>
+          </div>
+
+          {row.DT_ALTERACAO ? (
+            <div style={styles.lastInfo}>Última alteração: {row.DT_ALTERACAO}</div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
-function OutraCidadeModal(props: {
-  open: boolean;
-  initialValue: string;
-  onCancel: () => void;
-  onConfirm: (payload: { tipo: OutraCidadeTipo; city: string }) => void;
-}) {
-  var _a = useState(false),
+function AppErrorFallback(props: { text: string }) {
+  return (
+    <div style={{ padding: 12 }}>
+      <style>{globalCss}</style>
+      <div style={styles.card}>
+        <div style={{ padding: 14 }}>
+          <div style={styles.title}>Erro no app</div>
+          <div style={styles.errorText}>{props.text}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function App() {
+  var _a = useState(true),
     loading = _a[0],
     setLoading = _a[1];
   var _b = useState(''),
-    loadErr = _b[0],
-    setLoadErr = _b[1];
-  var _c = useState([] as { label: string; nome: string; estado: string }[]),
-    all = _c[0],
-    setAll = _c[1];
-  var _d = useState(''),
-    query = _d[0],
-    setQuery = _d[1];
-  var _e = useState(''),
-    selected = _e[0],
-    setSelected = _e[1];
+    error = _b[0],
+    setError = _b[1];
 
-  useEffect(function () {
-    if (!props.open) return;
-
-    setLoadErr('');
-    setQuery(props.initialValue || '');
-    setSelected(props.initialValue || '');
-
-    if (all.length) return;
-
-    setLoading(true);
-    requestText(IBGE_MUNICIPIOS_API)
-      .then(function (resp) {
-        return resp.text().then(function (raw) {
-          if (!resp.ok) throw new Error('HTTP ' + resp.status + ' • ' + (raw || 'Sem body'));
-
-          var data: any;
-          try {
-            data = JSON.parse(raw);
-          } catch (e) {
-            throw new Error('Resposta do IBGE não é JSON.');
-          }
-
-          var list: IbgeMunicipio[] = Array.isArray(data) ? data : [];
-          var mapped: { label: string; nome: string; estado: string }[] = [];
-
-          for (var i = 0; i < list.length; i++) {
-            var m = list[i];
-            var estado = getUfNomeFromMunicipio(m);
-            var nome = String((m && m.nome) || '').trim();
-            var label = cityLabel(nome, estado);
-            if (label) mapped.push({ label: label, nome: nome, estado: estado });
-          }
-
-          mapped.sort(function (a, b) {
-            return a.label.localeCompare(b.label, 'pt-BR');
-          });
-
-          setAll(mapped);
-        });
-      })
-      .catch(function (e: any) {
-        setLoadErr(String((e && e.message) || e || 'Erro ao carregar cidades do IBGE'));
-      })
-      .then(function () {
-        setLoading(false);
-      });
-  }, [props.open, props.initialValue, all.length]);
-
-  var options = useMemo(function () {
-    var q = String(query || '').trim().toLowerCase();
-    if (!all.length) return [];
-    if (!q) return all.slice(0, 50);
-
-    var out: { label: string; nome: string; estado: string }[] = [];
-    for (var i = 0; i < all.length; i++) {
-      var c = all[i];
-      var nome = String(c.nome || '').trim().toLowerCase();
-      if (nome.indexOf(q) === 0) out.push(c);
-    }
-
-    if (out.length) return out.slice(0, 50);
-
-    var out2: { label: string; nome: string; estado: string }[] = [];
-    for (var j = 0; j < all.length; j++) {
-      var c2 = all[j];
-      var pieces = String(c2.nome || '').trim().toLowerCase().split(/\s+/);
-      for (var k = 0; k < pieces.length; k++) {
-        if (pieces[k].indexOf(q) === 0) {
-          out2.push(c2);
-          break;
-        }
-      }
-    }
-
-    return out2.slice(0, 50);
-  }, [all, query]);
-
-  return (
-    <BasicModal
-      open={props.open}
-      onClose={props.onCancel}
-      title="Mora/Vota em outra cidade"
-      subtitle="Digite a cidade ou escolha NQ Responder"
-      width={560}
-    >
-      {loadErr ? <div style={styles.errorBox}>❌ {loadErr}</div> : null}
-
-      <input
-        value={query}
-        onChange={function (e) {
-          var v = e.target.value;
-          setQuery(v);
-          setSelected(v);
-        }}
-        placeholder={loading ? 'Carregando cidades...' : 'Digite a cidade'}
-        style={stylesModal.textInput}
-        disabled={loading || !!loadErr}
-      />
-
-      <div style={{ marginTop: 10 }}>
-        <button
-          type="button"
-          onClick={function () {
-            setQuery('');
-            setSelected('NQ_RESPONDER');
-          }}
-          style={{
-            ...styles.btn,
-            background: selected === 'NQ_RESPONDER' ? 'rgba(249,115,22,.14)' : COLORS.surface,
-          }}
-        >
-          NQ Responder
-        </button>
-      </div>
-
-      <div style={styles.cityList}>
-        {loading ? (
-          <div style={styles.cityItemMuted}>Carregando cidades...</div>
-        ) : options.length ? (
-          options.map(function (c) {
-            var active = selected === c.label;
-            return (
-              <button
-                key={c.label}
-                type="button"
-                onClick={function () {
-                  setQuery(c.label);
-                  setSelected(c.label);
-                }}
-                style={{
-                  ...styles.cityItemBtn,
-                  background: active ? 'rgba(249,115,22,.14)' : COLORS.surface,
-                  fontWeight: active ? 700 : 400,
-                }}
-              >
-                {c.label}
-              </button>
-            );
-          })
-        ) : (
-          <div style={styles.cityItemMuted}>Nenhuma cidade encontrada.</div>
-        )}
-      </div>
-
-      <div style={{ marginTop: 8, fontSize: 12, color: COLORS.textMuted }}>
-        {loading ? 'Carregando...' : all.length ? 'Total: ' + all.length + ' • Mostrando: ' + options.length : '—'}
-      </div>
-
-      <div style={stylesModal.rowBtns}>
-        <button style={styles.btn} onClick={props.onCancel}>
-          Cancelar
-        </button>
-        <button
-          style={{ ...styles.btn, ...styles.btnPrimary }}
-          onClick={function () {
-            if (selected === 'NQ_RESPONDER') {
-              props.onConfirm({ tipo: 'NQ_RESPONDER', city: '' });
-              return;
-            }
-
-            var city = String(selected || query || '').trim();
-            if (!city) {
-              window.alert('Selecione uma cidade ou NQ Responder.');
-              return;
-            }
-
-            props.onConfirm({ tipo: 'MORA_VOTA', city: city });
-          }}
-          disabled={loading || !!loadErr}
-        >
-          Confirmar
-        </button>
-      </div>
-    </BasicModal>
-  );
-}
-
-function RowActionsModal(props: {
-  open: boolean;
-  row: Row | null;
-  onClose: () => void;
-  onToggleStatus: (next: Exclude<Status, 'PENDENTE'>) => void;
-  onCall: (which: 'TF1' | 'TF2') => void;
-  onCopy: (label: string, value: string) => void;
-  onOpenRetorno: () => void;
-  onOpenOutraCidade: () => void;
-  onSetNaoPodeFazerPesquisa: () => void;
-}) {
-  if (!props.open || !props.row) return null;
-
-  var row = props.row;
-  var tf1 = safeTel(row.TF1);
-  var tf2 = safeTel(row.TF2);
-  var isNaoAtendeuOuCaixa = row.STATUS === 'NAO_ATENDEU' || row.STATUS === 'CAIXA_POSTAL';
-
-  return (
-    <BasicModal
-      open={props.open}
-      onClose={props.onClose}
-      title={'Ações • IDP ' + row.IDP}
-      subtitle={'Status atual: ' + statusText(row)}
-      width={760}
-    >
-      <div>
-        <ActionButton
-          active={row.STATUS === 'PESQUISA_FEITA'}
-          kind="success"
-          onClick={function () {
-            props.onToggleStatus('PESQUISA_FEITA');
-            props.onClose();
-          }}
-        >
-          Pesquisa Feita
-        </ActionButton>
-
-        <ActionButton
-          active={isNaoAtendeuOuCaixa}
-          kind="warning"
-          onClick={function () {
-            props.onToggleStatus('NAO_ATENDEU');
-            props.onClose();
-          }}
-        >
-          Não atendeu/caixa postal
-        </ActionButton>
-
-        <ActionButton
-          active={row.STATUS === 'NUMERO_NAO_EXISTE'}
-          kind="danger"
-          onClick={function () {
-            props.onToggleStatus('NUMERO_NAO_EXISTE');
-            props.onClose();
-          }}
-        >
-          Nº Não Existe
-        </ActionButton>
-
-        <ActionButton
-          active={row.STATUS === 'RECUSA'}
-          kind="pink"
-          onClick={function () {
-            props.onToggleStatus('RECUSA');
-            props.onClose();
-          }}
-        >
-          Recusa
-        </ActionButton>
-
-        <ActionButton
-          active={row.STATUS === 'RETORNO'}
-          kind="blueDark"
-          onClick={function () {
-            if (row.STATUS === 'RETORNO') {
-              props.onToggleStatus('RETORNO');
-              props.onClose();
-              return;
-            }
-            props.onOpenRetorno();
-          }}
-        >
-          Retorno
-        </ActionButton>
-
-        <ActionButton
-          active={row.STATUS === 'OUTRA_CIDADE'}
-          kind="orange"
-          onClick={function () {
-            props.onOpenOutraCidade();
-          }}
-        >
-          Mora/Vota em outra cidade
-        </ActionButton>
-
-        <ActionButton
-          active={row.STATUS === 'NAO_PODE_FAZER_PESQUISA'}
-          kind="teal"
-          onClick={function () {
-            props.onSetNaoPodeFazerPesquisa();
-            props.onClose();
-          }}
-        >
-          Não pode fazer a pesquisa
-        </ActionButton>
-
-        <ActionButton
-          active={row.STATUS === 'REMOVER_DA_LISTA'}
-          kind="purple"
-          onClick={function () {
-            props.onToggleStatus('REMOVER_DA_LISTA');
-            props.onClose();
-          }}
-        >
-          Remover da lista
-        </ActionButton>
-      </div>
-
-      <div style={{ marginTop: 8, paddingTop: 12, borderTop: '1px solid ' + COLORS.border }}>
-        <button
-          style={{ ...styles.btn, ...styles.btnPrimary }}
-          onClick={function () {
-            props.onCopy('IDP', row.IDP);
-          }}
-        >
-          Copiar IDP
-        </button>
-
-        <MiniTel
-          label="TF1"
-          value={row.TF1}
-          disabled={!tf1}
-          onClick={function () {
-            props.onCall('TF1');
-          }}
-          onCopy={function () {
-            props.onCopy('TF1', row.TF1);
-          }}
-        />
-
-        <MiniTel
-          label="TF2"
-          value={row.TF2}
-          disabled={!tf2}
-          onClick={function () {
-            props.onCall('TF2');
-          }}
-          onCopy={function () {
-            props.onCopy('TF2', row.TF2);
-          }}
-        />
-
-        <div style={{ marginTop: 8 }}>
-          <button style={styles.btn} onClick={props.onClose}>
-            Fechar
-          </button>
-        </div>
-      </div>
-    </BasicModal>
-  );
-}
-
-class AppErrorBoundary extends React.Component<
-  { children: React.ReactNode },
-  { hasError: boolean; errorText: string }
-> {
-  constructor(props: { children: React.ReactNode }) {
-    super(props);
-    this.state = { hasError: false, errorText: '' };
-  }
-
-  static getDerivedStateFromError(error: any) {
-    return {
-      hasError: true,
-      errorText: String((error && (error.stack || error.message)) || error || 'Erro desconhecido'),
-    };
-  }
-
-  componentDidCatch(error: any) {
-    try {
-      console.error('Mini App error:', error);
-    } catch (e) {}
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{ padding: 16 }}>
-          <style>{globalCss}</style>
-          <div style={styles.card}>
-            <div style={{ padding: 16 }}>
-              <div style={{ fontWeight: 700, fontSize: 16 }}>Erro no Mini App</div>
-              <div style={{ marginTop: 8, color: COLORS.textMuted, fontSize: 13 }}>
-                O aplicativo encontrou um erro de compatibilidade ou execução.
-              </div>
-              <pre
-                style={{
-                  marginTop: 12,
-                  padding: 12,
-                  borderRadius: 10,
-                  background: COLORS.surfaceMuted,
-                  border: '1px solid ' + COLORS.border,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  fontSize: 12,
-                }}
-              >
-                {this.state.errorText}
-              </pre>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    return this.props.children as any;
-  }
-}
-
-function MiniAppTabela() {
-  var _a = useState(false),
-    saving = _a[0],
-    setSaving = _a[1];
-  var _b = useState(''),
-    saveError = _b[0],
-    setSaveError = _b[1];
-  var _c = useState(''),
-    lastSavedAt = _c[0],
-    setLastSavedAt = _c[1];
+  var _c = useState([] as Row[]),
+    allRows = _c[0],
+    setAllRows = _c[1];
 
   var _d = useState(null as PartePayload[] | null),
     payload = _d[0],
     setPayload = _d[1];
-  var _e = useState(false),
-    loading = _e[0],
-    setLoading = _e[1];
-  var _f = useState(''),
-    error = _f[0],
-    setError = _f[1];
 
-  var _g = useState([] as Row[]),
-    allRows = _g[0],
-    setAllRows = _g[1];
-  var _h = useState('TODOS' as StatusFilter),
-    statusFilter = _h[0],
-    setStatusFilter = _h[1];
-  var _i = useState('TODOS'),
-    estadoFilter = _i[0],
-    setEstadoFilter = _i[1];
-  var _j = useState('TODAS'),
-    cidadeFilter = _j[0],
-    setCidadeFilter = _j[1];
-  var _k = useState('TODAS'),
-    regiaoFilter = _k[0],
-    setRegiaoFilter = _k[1];
-  var _l = useState(1),
-    page = _l[0],
-    setPage = _l[1];
+  var _e = useState('TODOS' as StatusFilter),
+    statusFilter = _e[0],
+    setStatusFilter = _e[1];
 
-  var _m = useState(''),
-    toast = _m[0],
-    setToast = _m[1];
-  var toastTimeoutRef = useRef<any>(null);
+  var _f = useState(1),
+    page = _f[0],
+    setPage = _f[1];
 
-  var _n = useState({} as Record<string, DirtyRow>),
-    dirty = _n[0],
-    setDirty = _n[1];
-  var saveTimeoutRef = useRef<any>(null);
+  var _g = useState(''),
+    expandedId = _g[0],
+    setExpandedId = _g[1];
 
-  var _o = useState(false),
-    actionsOpen = _o[0],
-    setActionsOpen = _o[1];
-  var _p = useState(''),
-    activeRowId = _p[0],
-    setActiveRowId = _p[1];
+  var _h = useState({} as Record<string, DirtyRow>),
+    dirty = _h[0],
+    setDirty = _h[1];
 
-  var _q = useState(false),
-    retornoModalOpen = _q[0],
-    setRetornoModalOpen = _q[1];
-  var _r = useState(''),
-    retornoInitial = _r[0],
-    setRetornoInitial = _r[1];
+  var _i = useState(false),
+    saving = _i[0],
+    setSaving = _i[1];
 
-  var _s = useState(false),
-    outraCidadeModalOpen = _s[0],
-    setOutraCidadeModalOpen = _s[1];
-  var _t = useState(''),
-    outraCidadeInitial = _t[0],
-    setOutraCidadeInitial = _t[1];
+  var _j = useState(''),
+    saveError = _j[0],
+    setSaveError = _j[1];
 
-  var dirtyCount = useMemo(function () {
-    return Object.keys(dirty).length;
-  }, [dirty]);
+  var _k = useState(''),
+    lastSavedAt = _k[0],
+    setLastSavedAt = _k[1];
 
-  var activeRow = useMemo(function () {
-    for (var i = 0; i < allRows.length; i++) {
-      if (allRows[i].id === activeRowId) return allRows[i];
-    }
-    return null;
-  }, [allRows, activeRowId]);
+  var _l = useState(''),
+    toast = _l[0],
+    setToast = _l[1];
 
   useEffect(function () {
     var entregaId = getEntregaIdOnly();
+
     if (!entregaId) {
+      setLoading(false);
       setError('Sem entregaId na URL. Abra com: #/?entregaId=SEU_ID');
       return;
     }
 
     setLoading(true);
     setError('');
-    setPayload(null);
 
-    var url = API_GET_ENTREGA + '?entregasId=' + encodeURIComponent(entregaId);
-
-    requestText(url)
+    requestText(API_GET_ENTREGA + '?entregasId=' + encodeURIComponent(entregaId))
       .then(function (resp) {
         return resp.text().then(function (raw) {
           if (!resp.ok) throw new Error('HTTP ' + resp.status + ' • ' + (raw || 'Sem body'));
-          if (!String(raw || '').trim()) throw new Error('Servidor respondeu vazio (sem JSON).');
+          if (!String(raw || '').trim()) throw new Error('Servidor respondeu vazio.');
 
           var data: any;
           try {
             data = JSON.parse(raw);
           } catch (e) {
-            throw new Error('Resposta não é JSON. Início: ' + raw.slice(0, 300));
+            throw new Error('Resposta não é JSON.');
           }
 
           setPayload(Array.isArray(data) ? data : [data]);
@@ -1418,7 +938,6 @@ function MiniAppTabela() {
       })
       .catch(function (e: any) {
         setError(String((e && e.message) || e || 'Erro ao buscar payload'));
-        setPayload(null);
       })
       .then(function () {
         setLoading(false);
@@ -1426,49 +945,45 @@ function MiniAppTabela() {
   }, []);
 
   useEffect(function () {
-    if (!payload || payload.length === 0) return;
+    if (!payload || !payload.length) return;
 
-    var item = payload[0] as PartePayload;
+    var item = payload[0];
     var csv = String((item && item.csv) || '');
 
     if (!csv.trim()) {
       setAllRows([]);
-      setError('Payload chegou, mas não veio o CSV.');
+      setError('Payload chegou, mas não veio CSV.');
       return;
     }
 
     var rows = csvToRows(csv);
     setAllRows(rows);
-    setDirty({});
-    setPage(1);
     setError('');
   }, [payload]);
 
   useEffect(function () {
     setPage(1);
-  }, [statusFilter, estadoFilter, cidadeFilter, regiaoFilter]);
+  }, [statusFilter]);
 
   useEffect(function () {
-    var entrega_id = getEntregaIdOnly();
-    if (!entrega_id) return;
-
     var keys = Object.keys(dirty);
     if (!keys.length) return;
 
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    var entrega_id = getEntregaIdOnly();
+    if (!entrega_id) return;
 
-    saveTimeoutRef.current = setTimeout(function () {
+    var timer = setTimeout(function () {
       var changes: any[] = [];
 
       for (var i = 0; i < keys.length; i++) {
-        var lineStr = keys[i];
-        var v = dirty[lineStr];
+        var lineKey = keys[i];
+        var v = dirty[lineKey];
         if (!v) continue;
 
         changes.push({
-          LINE: Number(lineStr),
+          LINE: Number(lineKey),
           STATUS: v.STATUS,
-          OBSERVACAO: obsToSave(v.STATUS, v.OBSERVACAO || ''),
+          OBSERVACAO: obsToSave(v.STATUS, v.OBSERVACAO),
           DT_ALTERACAO: v.DT_ALTERACAO,
           UPDATED_AT_MS: v.UPDATED_AT_MS,
           ts: new Date().toISOString(),
@@ -1481,7 +996,10 @@ function MiniAppTabela() {
       requestText(API_SAVE_PARTE, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entrega_id: entrega_id, changes: changes }),
+        body: JSON.stringify({
+          entrega_id: entrega_id,
+          changes: changes,
+        }),
       })
         .then(function (resp) {
           return resp.text().then(function (txt) {
@@ -1491,164 +1009,140 @@ function MiniAppTabela() {
           });
         })
         .catch(function (e: any) {
-          setSaveError(String((e && e.message) || e));
+          setSaveError(String((e && e.message) || e || 'Erro ao salvar'));
         })
         .then(function () {
           setSaving(false);
         });
-    }, 800);
+    }, 900);
 
     return function () {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      clearTimeout(timer);
     };
   }, [dirty]);
 
+  useEffect(function () {
+    if (!toast) return;
+    var timer = setTimeout(function () {
+      setToast('');
+    }, 2500);
+
+    return function () {
+      clearTimeout(timer);
+    };
+  }, [toast]);
+
   function showToast(message: string) {
     setToast(message);
-    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-    toastTimeoutRef.current = setTimeout(function () {
-      setToast('');
-    }, 3000);
   }
 
   function updateRow(id: string, patch: Partial<Row>) {
     setAllRows(function (prev) {
       var out: Row[] = [];
       for (var i = 0; i < prev.length; i++) {
-        var r = prev[i];
-        out.push(r.id === id ? { ...r, ...patch } : r);
+        var row = prev[i];
+        if (row.id === id) {
+          out.push({
+            id: row.id,
+            LINE: patch.LINE != null ? patch.LINE : row.LINE,
+            IDP: patch.IDP != null ? patch.IDP : row.IDP,
+            ESTADO: patch.ESTADO != null ? patch.ESTADO : row.ESTADO,
+            CIDADE: patch.CIDADE != null ? patch.CIDADE : row.CIDADE,
+            REGIAO_CIDADE: patch.REGIAO_CIDADE != null ? patch.REGIAO_CIDADE : row.REGIAO_CIDADE,
+            TF1: patch.TF1 != null ? patch.TF1 : row.TF1,
+            TF2: patch.TF2 != null ? patch.TF2 : row.TF2,
+            STATUS: patch.STATUS != null ? patch.STATUS : row.STATUS,
+            OBSERVACAO: patch.OBSERVACAO != null ? patch.OBSERVACAO : row.OBSERVACAO,
+            DT_ALTERACAO: patch.DT_ALTERACAO != null ? patch.DT_ALTERACAO : row.DT_ALTERACAO,
+          });
+        } else {
+          out.push(row);
+        }
       }
       return out;
     });
   }
 
-  function markDirty(
-    row: Row,
-    patch: {
-      STATUS?: Status;
-      OBSERVACAO?: string;
-      DT_ALTERACAO?: string;
-      UPDATED_AT_MS?: number;
-    }
-  ) {
-    var nextStatus = patch.STATUS || row.STATUS;
-    var nextObs = patch.OBSERVACAO != null ? patch.OBSERVACAO : row.OBSERVACAO || '';
-    var nextDtAlteracao = patch.DT_ALTERACAO || nowLocalStampPreciso();
-    var nextUpdatedAtMs = patch.UPDATED_AT_MS || Date.now();
-
+  function markDirty(row: Row, nextStatus: Status, nextObs: string, stamp: string) {
     setDirty(function (prev) {
       var lineKey = String(row.LINE);
-      var current = prev[lineKey];
+      var copy: Record<string, DirtyRow> = {};
+      var keys = Object.keys(prev);
 
-      if (current && current.UPDATED_AT_MS && current.UPDATED_AT_MS > nextUpdatedAtMs) {
-        return prev;
+      for (var i = 0; i < keys.length; i++) {
+        copy[keys[i]] = prev[keys[i]];
       }
 
-      return {
-        ...prev,
-        [lineKey]: {
-          STATUS: nextStatus,
-          OBSERVACAO: nextObs,
-          DT_ALTERACAO: nextDtAlteracao,
-          UPDATED_AT_MS: nextUpdatedAtMs,
-        },
+      copy[lineKey] = {
+        STATUS: nextStatus,
+        OBSERVACAO: nextObs,
+        DT_ALTERACAO: stamp,
+        UPDATED_AT_MS: Date.now(),
       };
+
+      return copy;
     });
   }
 
-  function applyRowChange(row: Row, nextStatus: Status, nextObs: string) {
-    var stamp = nowLocalStampPreciso();
-    var updatedAtMs = Date.now();
+  function applyStatus(row: Row, status: Status, obs?: string) {
+    var nextObs = typeof obs === 'string' ? obs : row.OBSERVACAO;
+
+    if (status === 'PENDENTE') nextObs = '';
+    if (status === 'NAO_PODE_FAZER_PESQUISA') nextObs = '';
+    if (status === 'PESQUISA_FEITA') nextObs = '';
+    if (status === 'NAO_ATENDEU') nextObs = '';
+    if (status === 'NUMERO_NAO_EXISTE') nextObs = '';
+    if (status === 'RECUSA') nextObs = '';
+    if (status === 'REMOVER_DA_LISTA') nextObs = '';
+
+    var stamp = nowLocalStampSemMs();
 
     updateRow(row.id, {
-      STATUS: nextStatus,
+      STATUS: status,
       OBSERVACAO: nextObs,
       DT_ALTERACAO: stamp,
     });
 
-    markDirty(row, {
-      STATUS: nextStatus,
-      OBSERVACAO: nextObs,
-      DT_ALTERACAO: stamp,
-      UPDATED_AT_MS: updatedAtMs,
-    });
+    markDirty(row, status, nextObs, stamp);
   }
 
-  function toggleStatusForRow(row: Row, next: Exclude<Status, 'PENDENTE'>) {
-    var newStatus: Status = row.STATUS === next ? 'PENDENTE' : next;
-    var nextObs = row.OBSERVACAO;
-
-    if (row.STATUS === 'RETORNO' && newStatus !== 'RETORNO') nextObs = '';
-    if (row.STATUS === 'OUTRA_CIDADE' && newStatus !== 'OUTRA_CIDADE') nextObs = '';
-    if (newStatus === 'NAO_PODE_FAZER_PESQUISA' && nextObs) nextObs = '';
-    if (row.STATUS === 'NAO_PODE_FAZER_PESQUISA' && newStatus !== row.STATUS) nextObs = '';
-
-    applyRowChange(row, newStatus, nextObs);
-  }
-
-  function setNaoPodeFazerPesquisaForRow(row: Row) {
-    applyRowChange(row, 'NAO_PODE_FAZER_PESQUISA', '');
-  }
-
-  function openRowActions(row: Row) {
-    setActiveRowId(row.id);
-    setActionsOpen(true);
-  }
-
-  function openRetornoPicker(row: Row) {
-    setRetornoInitial(retornoLabelFromObs(row.OBSERVACAO) || '');
-    setRetornoModalOpen(true);
-  }
-
-  function confirmRetorno(hhmm: string) {
-    var row = activeRow;
-    if (!row) {
-      setRetornoModalOpen(false);
+  function setRetorno(row: Row, value: string) {
+    var hhmm = validateHHMM(value);
+    if (!hhmm) {
+      window.alert('Digite o retorno no formato HH:MM.');
       return;
     }
 
-    var cleaned = validateHHMM(hhmm);
-    if (!cleaned) {
-      window.alert('Digite um horário válido.');
+    applyStatus(row, 'RETORNO', hhmm);
+    showToast('Retorno salvo: ' + hhmm);
+  }
+
+  function setOutraCidade(row: Row, value: string) {
+    var city = String(value || '').trim();
+    if (!city) {
+      window.alert('Digite a cidade ou NQ_RESPONDER.');
       return;
     }
 
-    applyRowChange(row, 'RETORNO', cleaned);
-    setRetornoModalOpen(false);
-    setActionsOpen(false);
+    applyStatus(row, 'OUTRA_CIDADE', city);
+    showToast('Cidade salva.');
   }
 
-  function openOutraCidadePicker(row: Row) {
-    setOutraCidadeInitial(outraCidadeFromObs(row.OBSERVACAO) || '');
-    setOutraCidadeModalOpen(true);
-  }
-
-  function confirmOutraCidade(payload2: { tipo: OutraCidadeTipo; city: string }) {
-    var row = activeRow;
-    if (!row) {
-      setOutraCidadeModalOpen(false);
-      return;
-    }
-
-    var obs =
-      payload2.tipo === 'NQ_RESPONDER'
-        ? buildOutraCidadeObs('NQ_RESPONDER')
-        : buildOutraCidadeObs('MORA_VOTA', payload2.city);
-
-    applyRowChange(row, 'OUTRA_CIDADE', obs);
-    setOutraCidadeModalOpen(false);
-    setActionsOpen(false);
-  }
-
-  function callPhoneForRow(row: Row, which: 'TF1' | 'TF2') {
+  function callPhone(row: Row, which: 'TF1' | 'TF2') {
     var tel = telToDial(row[which]);
-    if (!tel) return;
+    if (!tel) {
+      showToast('Telefone vazio.');
+      return;
+    }
     window.location.href = 'tel:' + tel;
   }
 
   function copyToClipboard(label: string, value: string) {
     var v = String(value || '').trim();
-    if (!v) return;
+    if (!v) {
+      showToast('Valor vazio.');
+      return;
+    }
 
     var promise: Promise<any>;
 
@@ -1664,12 +1158,12 @@ function MiniAppTabela() {
 
     promise
       .then(function () {
-        showToast(label + ' copiado: ' + v);
+        showToast(label + ' copiado.');
       })
       .catch(function () {
-        return fallbackCopyText(v)
+        fallbackCopyText(v)
           .then(function () {
-            showToast(label + ' copiado: ' + v);
+            showToast(label + ' copiado.');
           })
           .catch(function () {
             showToast('Não foi possível copiar.');
@@ -1677,585 +1171,393 @@ function MiniAppTabela() {
       });
   }
 
-  var geoCols = useMemo(function () {
-    var hasEstado = false;
-    var hasCidade = false;
-    var hasRegiao = false;
-
-    for (var i = 0; i < allRows.length; i++) {
-      var r = allRows[i];
-      if (String(r.ESTADO || '').trim()) hasEstado = true;
-      if (String(r.CIDADE || '').trim()) hasCidade = true;
-      if (String(r.REGIAO_CIDADE || '').trim()) hasRegiao = true;
-    }
-
-    return { estado: hasEstado, cidade: hasCidade, regiao: hasRegiao };
-  }, [allRows]);
-
-  var estadosDisponiveis = useMemo(function () {
-    if (!geoCols.estado) return [];
-    var s: Record<string, boolean> = {};
-    var arr: string[] = [];
-
-    for (var i = 0; i < allRows.length; i++) {
-      var v = String(allRows[i].ESTADO || '').trim();
-      if (v && !s[v]) {
-        s[v] = true;
-        arr.push(v);
-      }
-    }
-
-    arr.sort(function (a, b) {
-      return a.localeCompare(b);
-    });
-    return arr;
-  }, [allRows, geoCols.estado]);
-
-  var cidadesDisponiveis = useMemo(function () {
-    if (!geoCols.cidade) return [];
-    var s: Record<string, boolean> = {};
-    var arr: string[] = [];
-
-    for (var i = 0; i < allRows.length; i++) {
-      var v = String(allRows[i].CIDADE || '').trim();
-      if (v && !s[v]) {
-        s[v] = true;
-        arr.push(v);
-      }
-    }
-
-    arr.sort(function (a, b) {
-      return a.localeCompare(b);
-    });
-    return arr;
-  }, [allRows, geoCols.cidade]);
-
-  var regioesDisponiveis = useMemo(function () {
-    if (!geoCols.regiao) return [];
-    var s: Record<string, boolean> = {};
-    var arr: string[] = [];
-
-    for (var i = 0; i < allRows.length; i++) {
-      var v = String(allRows[i].REGIAO_CIDADE || '').trim();
-      if (v && !s[v]) {
-        s[v] = true;
-        arr.push(v);
-      }
-    }
-
-    arr.sort(function (a, b) {
-      return a.localeCompare(b);
-    });
-    return arr;
-  }, [allRows, geoCols.regiao]);
-
-  var filteredRows = useMemo(function () {
+  function getFilteredRows() {
     var out: Row[] = [];
 
     for (var i = 0; i < allRows.length; i++) {
-      var r = allRows[i];
+      var row = allRows[i];
 
-      if (geoCols.estado && estadoFilter !== 'TODOS') {
-        if (String(r.ESTADO || '').trim() !== estadoFilter) continue;
+      if (statusFilter === 'TODOS') {
+        out.push(row);
+      } else if (statusFilter === 'PENDENTES') {
+        if (row.STATUS === 'PENDENTE') out.push(row);
+      } else {
+        if (row.STATUS === statusFilter) out.push(row);
       }
-
-      if (geoCols.cidade && cidadeFilter !== 'TODAS') {
-        if (String(r.CIDADE || '').trim() !== cidadeFilter) continue;
-      }
-
-      if (geoCols.regiao && regiaoFilter !== 'TODAS') {
-        if (String(r.REGIAO_CIDADE || '').trim() !== regiaoFilter) continue;
-      }
-
-      if (statusFilter === 'PENDENTES') {
-        if (r.STATUS !== 'PENDENTE') continue;
-      } else if (statusFilter !== 'TODOS') {
-        if (r.STATUS !== statusFilter) continue;
-      }
-
-      out.push(r);
     }
 
     return out;
-  }, [allRows, statusFilter, estadoFilter, cidadeFilter, regiaoFilter, geoCols]);
-
-  var totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
-
-  var pageRows = useMemo(function () {
-    var from = (page - 1) * PAGE_SIZE;
-    return filteredRows.slice(from, from + PAGE_SIZE);
-  }, [filteredRows, page]);
-
-  var pendentes = useMemo(function () {
-    var total = 0;
-    for (var i = 0; i < filteredRows.length; i++) {
-      if (filteredRows[i].STATUS === 'PENDENTE') total++;
-    }
-    return total;
-  }, [filteredRows]);
-
-  var tratados = useMemo(function () {
-    var total = 0;
-    for (var i = 0; i < filteredRows.length; i++) {
-      if (filteredRows[i].STATUS !== 'PENDENTE') total++;
-    }
-    return total;
-  }, [filteredRows]);
-
-  var hasData = allRows.length > 0;
-
-  var hintLink = useMemo(function () {
-    var origin = getLocationOriginSafe();
-    var path = window.location.pathname || '';
-    return origin + path + '#/?entregaId=SEU_ENTREGA_ID';
-  }, []);
-
-  function PaginationControls() {
-    return (
-      <div style={styles.nav}>
-        <span style={styles.pill}>
-          Página <b>{page}</b>/<b>{Math.max(1, totalPages)}</b>
-        </span>
-
-        <button
-          style={styles.btn}
-          onClick={function () {
-            setPage(Math.max(1, page - 1));
-          }}
-          disabled={page <= 1}
-        >
-          ⬅️
-        </button>
-
-        <button
-          style={{ ...styles.btn, ...styles.btnPrimary }}
-          onClick={function () {
-            setPage(Math.min(totalPages, page + 1));
-          }}
-          disabled={page >= totalPages}
-        >
-          ➡️
-        </button>
-      </div>
-    );
   }
 
-  return (
-    <div style={{ padding: 12 }}>
-      <style>{globalCss}</style>
+  var filteredRows = getFilteredRows();
+  var totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  var currentPage = page > totalPages ? totalPages : page;
+  var start = (currentPage - 1) * PAGE_SIZE;
+  var pageRows = filteredRows.slice(start, start + PAGE_SIZE);
 
-      <RowActionsModal
-        open={actionsOpen}
-        row={activeRow}
-        onClose={function () {
-          setActionsOpen(false);
-        }}
-        onToggleStatus={function (next) {
-          if (activeRow) toggleStatusForRow(activeRow, next);
-        }}
-        onCall={function (which) {
-          if (activeRow) callPhoneForRow(activeRow, which);
-        }}
-        onCopy={copyToClipboard}
-        onOpenRetorno={function () {
-          if (activeRow) openRetornoPicker(activeRow);
-        }}
-        onOpenOutraCidade={function () {
-          if (activeRow) openOutraCidadePicker(activeRow);
-        }}
-        onSetNaoPodeFazerPesquisa={function () {
-          if (activeRow) setNaoPodeFazerPesquisaForRow(activeRow);
-        }}
-      />
+  var pendentes = countRowsByStatus(filteredRows, 'PENDENTE_ONLY');
+  var tratados = filteredRows.length - pendentes;
+  var dirtyCount = Object.keys(dirty).length;
 
-      <RetornoModal
-        open={retornoModalOpen}
-        initialValue={retornoInitial}
-        onCancel={function () {
-          setRetornoModalOpen(false);
-        }}
-        onConfirm={confirmRetorno}
-      />
+  var hintLink = getLocationOriginSafe() + (window.location.pathname || '') + '#/?entregaId=SEU_ENTREGA_ID';
 
-      <OutraCidadeModal
-        open={outraCidadeModalOpen}
-        initialValue={outraCidadeInitial}
-        onCancel={function () {
-          setOutraCidadeModalOpen(false);
-        }}
-        onConfirm={confirmOutraCidade}
-      />
+  try {
+    return (
+      <div style={styles.app}>
+        <style>{globalCss}</style>
 
-      {!hasData ? (
-        <div style={styles.card}>
-          <div style={{ padding: 14, color: COLORS.text }}>
-            <div style={{ fontWeight: 700, fontSize: 14 }}>{loading ? 'Carregando...' : 'Aguardando dados...'}</div>
-
-            <div style={{ color: COLORS.textMuted, marginTop: 6, fontSize: 12 }}>
-              {loading ? 'Buscando o CSV no servidor.' : 'Abra com entregaId para carregar. Exemplo:'}
-            </div>
-
-            {!loading ? <div style={styles.hintBox}>{hintLink}</div> : null}
-
-            {error ? (
-              <div style={styles.errorBox}>
-                <div style={{ fontWeight: 700 }}>Erro</div>
-                <div style={{ fontSize: 12, marginTop: 4 }}>{error}</div>
-              </div>
+        <div style={styles.topCard}>
+          <div style={styles.title}>Atendimento Legacy</div>
+          <div style={styles.sub}>
+            Registros: <b>{filteredRows.length}</b> • Tratados: <b>{tratados}</b> • Pendentes: <b>{pendentes}</b>
+          </div>
+          <div style={styles.sub}>
+            Salvando: <b>{saving ? 'SIM' : 'NÃO'}</b>
+            {lastSavedAt ? (
+              <span>
+                {' '}
+                • Último: <b>{lastSavedAt}</b>
+              </span>
             ) : null}
           </div>
-        </div>
-      ) : (
-        <div>
-          <div style={styles.topbarLocal}>
-            <div style={{ minWidth: 240 }}>
-              <div style={styles.h1}>Atendimento</div>
-
-              <div style={styles.sub}>
-                Registros: <b>{filteredRows.length}</b> • Tratados: <b>{tratados}</b> • Pendentes: <b>{pendentes}</b>
-              </div>
-
-              <div style={styles.sub}>
-                Salvando: <b style={{ color: saving ? COLORS.warning : COLORS.textMuted }}>{saving ? 'SIM' : 'NÃO'}</b>
-                {lastSavedAt ? (
-                  <span>
-                    {' '}
-                    • Último: <b>{lastSavedAt}</b>
-                  </span>
-                ) : null}
-              </div>
-
-              <div style={styles.sub}>
-                Alterações pendentes: <b style={{ color: dirtyCount ? COLORS.warning : COLORS.textMuted }}>{dirtyCount}</b>
-              </div>
-
-              {saveError ? <div style={styles.errorBox}>❌ {saveError}</div> : null}
-            </div>
-
-            <div style={styles.filtersRow}>
-              <select
-                value={statusFilter}
-                onChange={function (e) {
-                  setStatusFilter(e.target.value as StatusFilter);
-                }}
-                style={styles.select}
-              >
-                <option value="TODOS">Status: Todos</option>
-                <option value="PENDENTES">Status: Pendentes</option>
-                <option value="PESQUISA_FEITA">Status: Pesquisa Feita</option>
-                <option value="NAO_ATENDEU">Status: Não atendeu/caixa postal</option>
-                <option value="NUMERO_NAO_EXISTE">Status: Nº Não Existe</option>
-                <option value="RECUSA">Status: Recusa</option>
-                <option value="RETORNO">Status: Retorno</option>
-                <option value="OUTRA_CIDADE">Status: Mora/Vota em outra cidade</option>
-                <option value="NAO_PODE_FAZER_PESQUISA">Status: Não pode fazer a pesquisa</option>
-                <option value="REMOVER_DA_LISTA">Status: Remover da lista</option>
-              </select>
-
-              {geoCols.estado ? (
-                <select
-                  value={estadoFilter}
-                  onChange={function (e) {
-                    setEstadoFilter(e.target.value);
-                  }}
-                  style={styles.select}
-                >
-                  <option value="TODOS">Estado: Todos</option>
-                  {estadosDisponiveis.map(function (uf) {
-                    return (
-                      <option key={uf} value={uf}>
-                        Estado: {uf}
-                      </option>
-                    );
-                  })}
-                </select>
-              ) : null}
-
-              {geoCols.cidade ? (
-                <select
-                  value={cidadeFilter}
-                  onChange={function (e) {
-                    setCidadeFilter(e.target.value);
-                  }}
-                  style={styles.select}
-                >
-                  <option value="TODAS">Cidade: Todas</option>
-                  {cidadesDisponiveis.map(function (c) {
-                    return (
-                      <option key={c} value={c}>
-                        Cidade: {c}
-                      </option>
-                    );
-                  })}
-                </select>
-              ) : null}
-
-              {geoCols.regiao ? (
-                <select
-                  value={regiaoFilter}
-                  onChange={function (e) {
-                    setRegiaoFilter(e.target.value);
-                  }}
-                  style={styles.select}
-                >
-                  <option value="TODAS">Região: Todas</option>
-                  {regioesDisponiveis.map(function (rg) {
-                    return (
-                      <option key={rg} value={rg}>
-                        Região: {rg}
-                      </option>
-                    );
-                  })}
-                </select>
-              ) : null}
-
-              <button
-                style={styles.btn}
-                onClick={function () {
-                  setStatusFilter('TODOS');
-                  setEstadoFilter('TODOS');
-                  setCidadeFilter('TODAS');
-                  setRegiaoFilter('TODAS');
-                }}
-              >
-                Limpar filtros
-              </button>
-            </div>
-
-            <PaginationControls />
+          <div style={styles.sub}>
+            Pendentes de envio: <b>{dirtyCount}</b>
           </div>
 
+          {saveError ? <div style={styles.errorBox}>❌ {saveError}</div> : null}
+
+          <div style={styles.filterWrap}>
+            <select
+              value={statusFilter}
+              onChange={function (e) {
+                setStatusFilter(e.target.value as StatusFilter);
+              }}
+              style={styles.select}
+            >
+              <option value="TODOS">Todos</option>
+              <option value="PENDENTES">Pendentes</option>
+              <option value="PESQUISA_FEITA">Pesquisa Feita</option>
+              <option value="NAO_ATENDEU">Não atendeu</option>
+              <option value="NUMERO_NAO_EXISTE">Nº não existe</option>
+              <option value="RECUSA">Recusa</option>
+              <option value="RETORNO">Retorno</option>
+              <option value="OUTRA_CIDADE">Outra cidade</option>
+              <option value="NAO_PODE_FAZER_PESQUISA">Não pode pesquisar</option>
+              <option value="REMOVER_DA_LISTA">Remover da lista</option>
+            </select>
+
+            <button
+              style={styles.secondaryBtn}
+              onClick={function () {
+                setStatusFilter('TODOS');
+              }}
+            >
+              Limpar filtro
+            </button>
+          </div>
+
+          <div style={styles.pagination}>
+            <button
+              style={styles.secondaryBtn}
+              disabled={currentPage <= 1}
+              onClick={function () {
+                setPage(currentPage - 1);
+              }}
+            >
+              Anterior
+            </button>
+
+            <div style={styles.pageInfo}>
+              Página {currentPage} / {totalPages}
+            </div>
+
+            <button
+              style={styles.primaryBtn}
+              disabled={currentPage >= totalPages}
+              onClick={function () {
+                setPage(currentPage + 1);
+              }}
+            >
+              Próxima
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
           <div style={styles.card}>
-            <div style={styles.cardHeader}>
-              <div style={styles.cardTitle}>Tabela (20 por página)</div>
-              <div style={styles.cardSub}>Clique na linha para abrir as ações.</div>
-            </div>
-
-            <div style={styles.tableWrap}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>STATUS</th>
-                    <th style={styles.th}>IDP</th>
-                    {geoCols.estado ? <th style={styles.th}>ESTADO</th> : null}
-                    {geoCols.cidade ? <th style={styles.th}>CIDADE</th> : null}
-                    {geoCols.regiao ? <th style={styles.th}>REGIÃO</th> : null}
-                    <th style={styles.th}>TF1</th>
-                    <th style={styles.th}>TF2</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {pageRows.length ? (
-                    pageRows.map(function (r) {
-                      var isSelected = actionsOpen && activeRowId === r.id;
-
-                      return (
-                        <tr
-                          key={r.id}
-                          style={{
-                            ...styles.tr,
-                            background: rowBg(r.STATUS),
-                            outline: isSelected ? '2px solid rgba(0,0,0,.12)' : 'none',
-                          }}
-                          onClick={function () {
-                            openRowActions(r);
-                          }}
-                        >
-                          <td style={styles.td}>
-                            <StatusPill row={r} />
-                          </td>
-                          <td style={styles.td}>{r.IDP}</td>
-                          {geoCols.estado ? <td style={styles.td}>{r.ESTADO || '—'}</td> : null}
-                          {geoCols.cidade ? <td style={styles.td}>{r.CIDADE || '—'}</td> : null}
-                          {geoCols.regiao ? <td style={styles.td}>{r.REGIAO_CIDADE || '—'}</td> : null}
-                          <td style={styles.td}>{r.TF1 || '—'}</td>
-                          <td style={styles.td}>{r.TF2 || '—'}</td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td
-                        colSpan={2 + (geoCols.estado ? 1 : 0) + (geoCols.cidade ? 1 : 0) + (geoCols.regiao ? 1 : 0) + 2}
-                        style={styles.emptyTd}
-                      >
-                        Nenhum registro encontrado com esses filtros.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div style={styles.footerHint}>Clique na linha para abrir o modal de ações.</div>
-
-            <div style={{ padding: 10, borderTop: '1px solid ' + COLORS.border, background: COLORS.surfaceMuted }}>
-              <PaginationControls />
+            <div style={styles.loadingBox}>Carregando...</div>
+          </div>
+        ) : error ? (
+          <div style={styles.card}>
+            <div style={{ padding: 14 }}>
+              <div style={styles.errorTitle}>Erro</div>
+              <div style={styles.errorText}>{error}</div>
+              <div style={styles.hintBox}>{hintLink}</div>
             </div>
           </div>
-        </div>
-      )}
+        ) : !allRows.length ? (
+          <div style={styles.card}>
+            <div style={styles.loadingBox}>Nenhum registro encontrado.</div>
+          </div>
+        ) : (
+          <div>
+            {pageRows.length ? (
+              pageRows.map(function (row) {
+                return (
+                  <RowCard
+                    key={row.id}
+                    row={row}
+                    expanded={expandedId === row.id}
+                    onToggle={function () {
+                      setExpandedId(expandedId === row.id ? '' : row.id);
+                    }}
+                    onApplyStatus={function (r, status) {
+                      applyStatus(r, status);
+                    }}
+                    onSetRetorno={function (r, value) {
+                      setRetorno(r, value);
+                    }}
+                    onSetOutraCidade={function (r, value) {
+                      setOutraCidade(r, value);
+                    }}
+                    onCall={function (r, which) {
+                      callPhone(r, which);
+                    }}
+                    onCopy={copyToClipboard}
+                  />
+                );
+              })
+            ) : (
+              <div style={styles.card}>
+                <div style={styles.loadingBox}>Nenhum registro nesta página.</div>
+              </div>
+            )}
+          </div>
+        )}
 
-      {toast ? <div style={styles.snackbar}>{toast}</div> : null}
-    </div>
-  );
-}
-
-export function App() {
-  return (
-    <AppErrorBoundary>
-      <MiniAppTabela />
-    </AppErrorBoundary>
-  );
+        {toast ? <div style={styles.toast}>{toast}</div> : null}
+      </div>
+    );
+  } catch (e: any) {
+    return <AppErrorFallback text={String((e && (e.message || e.stack)) || e || 'Erro desconhecido')} />;
+  }
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  topbarLocal: {
-    background: COLORS.surfaceMuted,
-    border: '1px solid ' + COLORS.border,
-    borderRadius: COLORS.radius,
-    boxShadow: COLORS.shadow,
+  app: {
     padding: 10,
+  },
+  topCard: {
+    background: COLORS.card,
+    border: '1px solid ' + COLORS.border,
+    borderRadius: 12,
+    padding: 12,
     marginBottom: 10,
   },
-  h1: {
+  card: {
+    background: COLORS.card,
+    border: '1px solid ' + COLORS.border,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
+  title: {
+    fontSize: 18,
     fontWeight: 700,
-    fontSize: 16,
     color: COLORS.text,
-    marginBottom: 6,
   },
   sub: {
     fontSize: 13,
-    color: COLORS.textMuted,
-    marginTop: 4,
+    color: COLORS.muted,
+    marginTop: 6,
   },
-  filtersRow: {
+  filterWrap: {
     marginTop: 10,
-    marginBottom: 4,
   },
   select: {
+    width: '100%',
+    height: 42,
     border: '1px solid ' + COLORS.border,
-    background: COLORS.surface,
-    color: COLORS.text,
-    padding: '10px 12px',
     borderRadius: 10,
-    fontSize: 13,
-    outline: 'none',
-    marginRight: 8,
+    background: '#fff',
+    padding: '0 10px',
     marginBottom: 8,
   },
-  nav: {
-    marginTop: 8,
+  pagination: {
+    marginTop: 10,
   },
-  pill: {
-    border: '1px solid ' + COLORS.border,
-    background: COLORS.surface,
-    color: COLORS.text,
-    padding: '8px 10px',
-    borderRadius: 999,
+  pageInfo: {
     fontSize: 13,
-    display: 'inline-block',
-    marginRight: 8,
+    color: COLORS.muted,
     marginBottom: 8,
   },
-  btn: {
+  rowCard: {
+    background: COLORS.card,
     border: '1px solid ' + COLORS.border,
-    background: COLORS.secondary,
-    color: COLORS.secondaryText,
-    padding: '10px 12px',
-    borderRadius: 10,
-    fontWeight: 700,
-    fontSize: 13,
+    borderLeftWidth: 5,
+    borderRadius: 12,
+    marginBottom: 10,
+    overflow: 'hidden',
+  },
+  rowHeaderBtn: {
+    display: 'block',
+    width: '100%',
+    border: 'none',
+    background: '#fff',
+    textAlign: 'left',
+    padding: 12,
     cursor: 'pointer',
-    marginRight: 8,
+  },
+  rowHeaderTop: {
     marginBottom: 8,
   },
-  btnPrimary: {
+  rowHeaderBottom: {
+    marginTop: 6,
+  },
+  rowId: {
+    fontSize: 15,
+    fontWeight: 700,
+    color: COLORS.text,
+    marginBottom: 8,
+  },
+  rowLine: {
+    fontSize: 12,
+    color: COLORS.muted,
+  },
+  rowPhones: {
+    fontSize: 12,
+    color: COLORS.muted,
+    marginTop: 4,
+    wordBreak: 'break-word',
+  },
+  rowGeo: {
+    fontSize: 12,
+    color: COLORS.muted,
+    marginTop: 6,
+    wordBreak: 'break-word',
+  },
+  statusBadge: {
+    display: 'inline-block',
+    padding: '5px 8px',
+    borderRadius: 999,
+    border: '1px solid ' + COLORS.border,
+    fontSize: 11,
+    fontWeight: 700,
+    color: COLORS.text,
+    background: COLORS.card2,
+  },
+  rowBody: {
+    borderTop: '1px solid ' + COLORS.border,
+    background: COLORS.card2,
+    padding: 12,
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: COLORS.text,
+    marginBottom: 8,
+    marginTop: 10,
+  },
+  btnGrid: {
+    marginBottom: 6,
+  },
+  actionBtn: {
+    display: 'inline-block',
+    width: '100%',
+    minHeight: 42,
+    border: '1px solid ' + COLORS.border,
+    borderRadius: 10,
+    background: '#fff',
+    color: COLORS.text,
+    fontWeight: 700,
+    marginBottom: 8,
+    cursor: 'pointer',
+    padding: '0 10px',
+  },
+  primaryBtn: {
+    display: 'inline-block',
+    width: '100%',
+    minHeight: 42,
+    border: '1px solid ' + COLORS.primary,
+    borderRadius: 10,
     background: COLORS.primary,
     color: COLORS.primaryText,
-    borderColor: COLORS.border,
-  },
-  btnAction: {
-    padding: '10px 12px',
-    borderRadius: 10,
-    fontSize: 12,
     fontWeight: 700,
+    marginBottom: 8,
     cursor: 'pointer',
-    marginRight: 8,
+    padding: '0 10px',
+  },
+  secondaryBtn: {
+    display: 'inline-block',
+    width: '100%',
+    minHeight: 42,
+    border: '1px solid ' + COLORS.border,
+    borderRadius: 10,
+    background: '#fff',
+    color: COLORS.text,
+    fontWeight: 700,
+    marginBottom: 8,
+    cursor: 'pointer',
+    padding: '0 10px',
+  },
+  inlineRow: {
     marginBottom: 8,
   },
-  btnActive: {
-    outline: '2px solid rgba(0,0,0,.10)',
-  },
-  card: {
-    background: COLORS.surface,
+  input: {
+    width: '100%',
+    height: 42,
     border: '1px solid ' + COLORS.border,
-    borderRadius: COLORS.radius,
-    overflow: 'hidden',
-    boxShadow: COLORS.shadow,
+    borderRadius: 10,
+    padding: '0 10px',
+    background: '#fff',
+    color: COLORS.text,
+    marginBottom: 8,
   },
-  cardHeader: {
-    padding: 10,
-    borderBottom: '1px solid ' + COLORS.border,
-    background: COLORS.surfaceMuted,
+  lastInfo: {
+    fontSize: 12,
+    color: COLORS.muted,
+    marginTop: 8,
   },
-  cardTitle: {
-    fontWeight: 700,
+  loadingBox: {
+    padding: 16,
     fontSize: 14,
     color: COLORS.text,
   },
-  cardSub: {
-    fontSize: 13,
-    color: COLORS.textMuted,
-    marginTop: 4,
+  errorBox: {
+    marginTop: 8,
+    padding: 10,
+    border: '1px solid ' + COLORS.danger,
+    borderRadius: 10,
+    background: '#fff',
+    color: COLORS.text,
+    fontSize: 12,
   },
-  tableWrap: {
-    overflowX: 'auto',
-    overflowY: 'hidden',
-    background: COLORS.surface,
-    WebkitOverflowScrolling: 'touch',
+  errorTitle: {
+    fontSize: 15,
+    fontWeight: 700,
+    color: COLORS.text,
   },
-  table: {
-    width: '100%',
-    minWidth: 760,
-    borderCollapse: 'collapse',
-  },
-  th: {
-    background: COLORS.surfaceMuted,
-    borderBottom: '1px solid ' + COLORS.border,
-    padding: '10px 12px',
-    fontSize: 13,
-    textAlign: 'left',
-    color: COLORS.textMuted,
-    whiteSpace: 'nowrap',
-  },
-  tr: {
-    cursor: 'pointer',
-  },
-  td: {
-    borderBottom: '1px solid ' + COLORS.border,
-    padding: '11px 12px',
+  errorText: {
     fontSize: 13,
     color: COLORS.text,
-    whiteSpace: 'nowrap',
+    marginTop: 8,
+    wordBreak: 'break-word',
+    whiteSpace: 'pre-wrap',
   },
-  emptyTd: {
-    padding: 14,
-    color: COLORS.textMuted,
-    fontSize: 13,
-    background: COLORS.surface,
-  },
-  footerHint: {
+  hintBox: {
+    marginTop: 10,
     padding: 10,
-    color: COLORS.textMuted,
-    fontSize: 13,
-    background: COLORS.surface,
+    border: '1px solid ' + COLORS.border,
+    borderRadius: 10,
+    fontSize: 12,
+    color: COLORS.muted,
+    wordBreak: 'break-all',
+    background: '#fff',
   },
-  snackbar: {
+  toast: {
     position: 'fixed',
     left: '50%',
-    bottom: 14,
+    bottom: 10,
     transform: 'translateX(-50%)',
     background: 'rgba(0,0,0,.88)',
     color: '#fff',
@@ -2267,110 +1569,6 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
-    zIndex: 10000,
-  },
-  errorBox: {
-    marginTop: 8,
-    padding: 10,
-    border: '1px solid ' + COLORS.danger,
-    borderRadius: 10,
-    fontSize: 12,
-    color: COLORS.textMuted,
-  },
-  hintBox: {
-    marginTop: 10,
-    padding: 10,
-    border: '1px solid ' + COLORS.border,
-    borderRadius: 10,
-    fontSize: 12,
-    color: COLORS.textMuted,
-    wordBreak: 'break-all',
-    background: COLORS.surface,
-  },
-  cityList: {
-    marginTop: 10,
-    border: '1px solid ' + COLORS.border,
-    borderRadius: 12,
-    background: COLORS.surface,
-    maxHeight: 260,
-    overflowY: 'auto',
-  },
-  cityItemBtn: {
-    width: '100%',
-    textAlign: 'left',
-    padding: '10px 12px',
-    border: 'none',
-    borderBottom: '1px solid ' + COLORS.border,
-    color: COLORS.text,
-    cursor: 'pointer',
-    fontSize: 13,
-  },
-  cityItemMuted: {
-    padding: 12,
-    fontSize: 13,
-    color: COLORS.textMuted,
-  },
-};
-
-const stylesModal: Record<string, React.CSSProperties> = {
-  overlay: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    background: 'rgba(0,0,0,.35)',
-    padding: 12,
     zIndex: 9999,
-    overflowY: 'auto',
-  },
-  box: {
-    width: '96%',
-    maxWidth: 420,
-    margin: '20px auto',
-    background: COLORS.surface,
-    border: '1px solid ' + COLORS.border,
-    borderRadius: 14,
-    boxShadow: COLORS.shadow,
-    overflow: 'hidden',
-  },
-  header: {
-    padding: 12,
-    background: COLORS.surfaceMuted,
-    borderBottom: '1px solid ' + COLORS.border,
-  },
-  title: {
-    fontWeight: 700,
-    fontSize: 14,
-    color: COLORS.text,
-  },
-  sub: {
-    fontSize: 12,
-    color: COLORS.textMuted,
-    marginTop: 4,
-  },
-  input: {
-    width: '100%',
-    padding: '12px 12px',
-    borderRadius: 12,
-    border: '1px solid ' + COLORS.border,
-    background: COLORS.surface2,
-    color: COLORS.text,
-    fontSize: 16,
-    outline: 'none',
-  },
-  textInput: {
-    width: '100%',
-    padding: '12px 12px',
-    borderRadius: 12,
-    border: '1px solid ' + COLORS.border,
-    background: COLORS.surface2,
-    color: COLORS.text,
-    fontSize: 14,
-    outline: 'none',
-  },
-  rowBtns: {
-    marginTop: 12,
-    textAlign: 'right',
   },
 };
