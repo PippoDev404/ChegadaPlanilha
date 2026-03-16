@@ -46,7 +46,7 @@ type SimpleResponse = {
   text: () => Promise<string>;
 };
 
-const PAGE_SIZE = 15;
+const PAGE_SIZE = 10;
 
 const API_GET_ENTREGA = 'https://n8n.srv962474.hstgr.cloud/webhook/entregas';
 const API_SAVE_PARTE = 'https://n8n.srv962474.hstgr.cloud/webhook/parte/salvar';
@@ -585,6 +585,13 @@ function obsToSave(status: Status, obs: string) {
   }
 
   if (status === 'NAO_PODE_FAZER_PESQUISA') return '';
+  if (status === 'PENDENTE') return '';
+  if (status === 'PESQUISA_FEITA') return '';
+  if (status === 'NAO_ATENDEU') return '';
+  if (status === 'NUMERO_NAO_EXISTE') return '';
+  if (status === 'RECUSA') return '';
+  if (status === 'REMOVER_DA_LISTA') return '';
+
   return t;
 }
 
@@ -669,13 +676,13 @@ function RowCard(props: {
         <div style={styles.rowHeaderBottom}>
           <div style={styles.rowLine}>Linha: {row.LINE}</div>
           <div style={styles.rowPhones}>
-            {row.TF1 ? 'TF1: ' + row.TF1 : 'TF1: —'}{' '}
+            {row.TF1 ? 'TF1: ' + row.TF1 : 'TF1: —'}
             {' • '}
             {row.TF2 ? 'TF2: ' + row.TF2 : 'TF2: —'}
           </div>
         </div>
 
-        {(row.CIDADE || row.ESTADO || row.REGIAO_CIDADE) ? (
+        {row.CIDADE || row.ESTADO || row.REGIAO_CIDADE ? (
           <div style={styles.rowGeo}>
             {row.CIDADE || '—'}
             {row.ESTADO ? ' / ' + row.ESTADO : ''}
@@ -986,7 +993,7 @@ export function App() {
           OBSERVACAO: obsToSave(v.STATUS, v.OBSERVACAO),
           DT_ALTERACAO: v.DT_ALTERACAO,
           UPDATED_AT_MS: v.UPDATED_AT_MS,
-          ts: new Date().toISOString(),
+          ts: nowLocalStampSemMs(),
         });
       }
 
@@ -1005,7 +1012,7 @@ export function App() {
           return resp.text().then(function (txt) {
             if (!resp.ok) throw new Error('HTTP ' + resp.status + ' • ' + (txt || 'Sem body'));
             setDirty({});
-            setLastSavedAt(new Date().toLocaleTimeString());
+            setLastSavedAt(nowLocalStampSemMs());
           });
         })
         .catch(function (e: any) {

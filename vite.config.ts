@@ -5,7 +5,7 @@ import mkcert from 'vite-plugin-mkcert';
 import tsconfigPaths from 'vite-tsconfig-paths';
 
 export default defineConfig({
-  base: '/ChegadaPlanilha',
+  base: '/ChegadaPlanilha/',
   css: {
     preprocessorOptions: {
       scss: {
@@ -29,7 +29,6 @@ export default defineConfig({
     process.env.HTTPS ? mkcert() : undefined,
   ].filter(Boolean),
   build: {
-    target: 'es2015',
     minify: false,
     cssCodeSplit: false,
     sourcemap: false,
