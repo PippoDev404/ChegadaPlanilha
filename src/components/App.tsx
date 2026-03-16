@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 
 type Status =
   | 'PENDENTE'
@@ -17,17 +18,23 @@ type PartePayload = {
   chave_parte?: string;
 };
 
+type OutraCidadeTipo = 'MORA_VOTA' | 'NQ_RESPONDER';
+
 type Row = {
   id: string;
   LINE: number;
   IDP: string;
+
   ESTADO: string;
   CIDADE: string;
   REGIAO_CIDADE: string;
+
   TF1: string;
   TF2: string;
+
   STATUS: Status;
   OBSERVACAO: string;
+
   DT_ALTERACAO: string;
 };
 
@@ -40,160 +47,77 @@ type DirtyRow = {
 
 type StatusFilter = 'TODOS' | 'PENDENTES' | Status;
 
-type SimpleResponse = {
-  ok: boolean;
-  status: number;
-  text: () => Promise<string>;
-};
-
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 20;
 
 const API_GET_ENTREGA = 'https://n8n.srv962474.hstgr.cloud/webhook/entregas';
 const API_SAVE_PARTE = 'https://n8n.srv962474.hstgr.cloud/webhook/parte/salvar';
 
-const COLORS = {
-  bg: '#f3f4f6',
-  card: '#ffffff',
-  card2: '#fafafa',
-  text: '#111111',
-  muted: '#666666',
-  border: '#d1d5db',
-  primary: '#000000',
-  primaryText: '#ffffff',
-  success: '#16a34a',
-  warning: '#f59e0b',
-  danger: '#ef4444',
-  info: '#2563eb',
-  orange: '#ea580c',
-  purple: '#7c3aed',
-  teal: '#0f766e',
-};
+const IBGE_MUNICIPIOS_API = 'https://servicodados.ibge.gov.br/api/v1/localidades/municipios';
 
+// =========================
+// THEME
+// =========================
 const globalCss = `
-html, body, #root {
-  height: 100%;
+:root{
+  --bg: #FFFFFF;
+  --surface: #FFFFFF;
+  --surface-2: #FFFFFF;
+  --surfaceMuted: #F3F4F6;
+  --text: #000000;
+  --text-muted: #374151;
+  --border: #D1D5DB;
+
+  --primary: #000000;
+  --primary-text: #FFFFFF;
+
+  --secondary: #FFFFFF;
+  --secondary-text: #000000;
+
+  --success: #16A34A;
+  --warning: #F59E0B;
+  --danger:  #EF4444;
+  --orange:  #F97316;
+
+  --blueDark: #1E3A8A;
+  --blueLight: #38BDF8;
+
+  --purple: #7C3AED;
+  --teal: #0F766E;
+  --pink: #BE185D;
+
+  --shadow: 0 10px 30px rgba(0,0,0,.10);
+  --radius: 15px;
 }
-body {
+
+html, body{ height: 100%; }
+
+body{
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(135deg, #FFFFFF 0%, #F3F4F6 100%);
   margin: 0;
   padding: 0;
-  background: ${COLORS.bg};
-  color: ${COLORS.text};
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--text);
 }
-* {
-  box-sizing: border-box;
-}
-button, input, select, textarea {
-  font-family: inherit;
-}
-button {
-  -webkit-tap-highlight-color: transparent;
-}
-input, select, textarea {
-  font-size: 16px;
-}
+*{ box-sizing: border-box; }
+button:disabled{ opacity: .55; cursor: not-allowed !important; }
 `;
 
-function zeroPad(value: number | string, size: number) {
-  var text = String(value == null ? '' : value);
-  if ((text as any).padStart) return (text as any).padStart(size, '0');
-  return ('000000000000' + text).slice(-size);
-}
-
-function nowLocalStampSemMs() {
-  var d = new Date();
-  return (
-    zeroPad(d.getDate(), 2) +
-    '/' +
-    zeroPad(d.getMonth() + 1, 2) +
-    '/' +
-    d.getFullYear() +
-    ' ' +
-    zeroPad(d.getHours(), 2) +
-    ':' +
-    zeroPad(d.getMinutes(), 2) +
-    ':' +
-    zeroPad(d.getSeconds(), 2)
-  );
-}
-
-function safeNormalizeText(value: string) {
-  var text = String(value || '').replace(/^\uFEFF/, '');
-  try {
-    if ((text as any).normalize) {
-      return (text as any).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    }
-  } catch (e) {}
-  return text;
-}
-
-function parseSimpleQueryString(qs: string) {
-  var out: Record<string, string> = {};
-  var clean = String(qs || '').replace(/^\?/, '').trim();
-  if (!clean) return out;
-
-  var parts = clean.split('&');
-  for (var i = 0; i < parts.length; i++) {
-    var piece = parts[i];
-    if (!piece) continue;
-
-    var eq = piece.indexOf('=');
-    var key = piece;
-    var val = '';
-
-    if (eq >= 0) {
-      key = piece.slice(0, eq);
-      val = piece.slice(eq + 1);
-    }
-
-    try {
-      key = decodeURIComponent(String(key || '').replace(/\+/g, ' '));
-    } catch (e) {}
-    try {
-      val = decodeURIComponent(String(val || '').replace(/\+/g, ' '));
-    } catch (e) {}
-
-    out[key] = val;
+// =========================
+// HELPERS
+// =========================
+function getEntregaIdOnly(): string {
+  const hash = window.location.hash || '';
+  const qi = hash.indexOf('?');
+  if (qi >= 0) {
+    const qs = hash.slice(qi + 1);
+    const hp = new URLSearchParams(qs);
+    const v = (hp.get('entregaId') || '').trim();
+    if (v && v !== 'undefined' && v !== 'null') return v;
   }
 
-  return out;
-}
-
-function getEntregaIdOnly(): string {
-  try {
-    var hash = window.location.hash || '';
-    var qi = hash.indexOf('?');
-
-    if (qi >= 0) {
-      var hashQs = hash.slice(qi + 1);
-
-      try {
-        if (typeof URLSearchParams !== 'undefined') {
-          var hp = new URLSearchParams(hashQs);
-          var v = String(hp.get('entregaId') || '').trim();
-          if (v && v !== 'undefined' && v !== 'null') return v;
-        }
-      } catch (e) {}
-
-      var parsedHash = parseSimpleQueryString(hashQs);
-      var vHash = String(parsedHash.entregaId || '').trim();
-      if (vHash && vHash !== 'undefined' && vHash !== 'null') return vHash;
-    }
-
-    var searchQs = window.location.search || '';
-
-    try {
-      if (typeof URLSearchParams !== 'undefined') {
-        var sp = new URLSearchParams(searchQs);
-        var v2 = String(sp.get('entregaId') || '').trim();
-        if (v2 && v2 !== 'undefined' && v2 !== 'null') return v2;
-      }
-    } catch (e) {}
-
-    var parsedSearch = parseSimpleQueryString(searchQs);
-    var vSearch = String(parsedSearch.entregaId || '').trim();
-    if (vSearch && vSearch !== 'undefined' && vSearch !== 'null') return vSearch;
-  } catch (e) {}
+  const sp = new URLSearchParams(window.location.search || '');
+  const v2 = (sp.get('entregaId') || '').trim();
+  if (v2 && v2 !== 'undefined' && v2 !== 'null') return v2;
 
   return '';
 }
@@ -205,94 +129,46 @@ function safeTel(v: string) {
 }
 
 function telToDial(v: string) {
-  var digits = safeTel(v).replace(/[^\d]/g, '');
+  const digits = safeTel(v).replace(/[^\d]/g, '');
   if (!digits) return '';
-  if (digits.indexOf('0') === 0 || digits.indexOf('55') === 0) return digits;
-  return '0' + digits;
+  if (digits.startsWith('0') || digits.startsWith('55')) return digits;
+  return `0${digits}`;
 }
 
-function supportsFetch() {
-  try {
-    return typeof fetch !== 'undefined';
-  } catch (e) {
-    return false;
-  }
-}
-
-function xhrRequest(url: string, options?: { method?: string; headers?: Record<string, string>; body?: string }) {
-  return new Promise<SimpleResponse>(function (resolve, reject) {
-    try {
-      var xhr = new XMLHttpRequest();
-      xhr.open(options && options.method ? options.method : 'GET', url, true);
-
-      var headers = (options && options.headers) || {};
-      var keys = Object.keys(headers);
-      for (var i = 0; i < keys.length; i++) {
-        xhr.setRequestHeader(keys[i], headers[keys[i]]);
-      }
-
-      xhr.onreadystatechange = function () {
-        if (xhr.readyState !== 4) return;
-
-        var responseText = xhr.responseText || '';
-        resolve({
-          ok: xhr.status >= 200 && xhr.status < 300,
-          status: xhr.status,
-          text: function () {
-            return Promise.resolve(responseText);
-          },
-        });
-      };
-
-      xhr.onerror = function () {
-        reject(new Error('Falha de rede'));
-      };
-
-      xhr.send(options && options.body ? options.body : null);
-    } catch (e) {
-      reject(e);
-    }
-  });
-}
-
-function requestText(url: string, options?: { method?: string; headers?: Record<string, string>; body?: string }) {
-  if (supportsFetch()) {
-    return fetch(url, {
-      method: options && options.method ? options.method : 'GET',
-      headers: options && options.headers ? options.headers : undefined,
-      body: options && options.body ? options.body : undefined,
-      cache: 'no-store',
-    }).then(function (resp) {
-      return {
-        ok: resp.ok,
-        status: resp.status,
-        text: function () {
-          return resp.text();
-        },
-      } as SimpleResponse;
-    });
-  }
-
-  return xhrRequest(url, options);
+function nowLocalStampPreciso() {
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  const ms = String(d.getMilliseconds()).padStart(3, '0');
+  return `${dd}/${mm}/${yyyy} ${hh}:${mi}:${ss}.${ms}`;
 }
 
 function normalizeHeader(h: string) {
-  return safeNormalizeText(h).trim().toUpperCase();
+  return String(h || '')
+    .replace(/^\uFEFF/, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toUpperCase();
 }
 
 function canonicalHeaderKey(h: string) {
-  var n = normalizeHeader(h)
+  const n = normalizeHeader(h)
     .replace(/[.\-\/\\]/g, '_')
     .replace(/\s+/g, '_')
     .replace(/_+/g, '_')
     .replace(/^_+|_+$/g, '');
 
-  var semSufixo = n.replace(/_\d+$/, '');
+  const semSufixo = n.replace(/_\d+$/, '');
 
   if (semSufixo === 'STATUS') return 'STATUS';
   if (semSufixo === 'OBSERVACAO') return 'OBSERVACAO';
 
-  var dtCompacto = semSufixo.replace(/_/g, '');
+  const dtCompacto = semSufixo.replace(/_/g, '');
   if (dtCompacto === 'DTALTERACAO') return 'DT_ALTERACAO';
 
   if (semSufixo === 'LINE') return 'LINE';
@@ -307,71 +183,118 @@ function canonicalHeaderKey(h: string) {
 }
 
 function sanitizeStatus(raw: string): Status {
-  var s = String(safeNormalizeText(raw) || '')
+  const s = String(raw || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
     .trim()
     .toUpperCase()
     .replace(/\s+/g, '_')
     .replace(/-+/g, '_');
 
   if (!s) return 'PENDENTE';
+
   if (s === 'SEM_RESPOSTA') return 'RETORNO';
   if (s === 'LIGAR_MAIS_TARDE') return 'RETORNO';
-  if (s.indexOf('RETORNO') === 0) return 'RETORNO';
+  if (s.startsWith('RETORNO')) return 'RETORNO';
+
   if (s === 'ATENDEU' || s === 'PESQUISA_FEITA') return 'PESQUISA_FEITA';
 
-  if (s === 'NAO_ATENDEU' || s === 'NAO_ATENDEU_CAIXA_POSTAL' || s === 'CAIXA_POSTAL') {
+  if (
+    s === 'NAO_ATENDEU' ||
+    s === 'NAO_ATENDEU_CAIXA_POSTAL' ||
+    s === 'CAIXA_POSTAL'
+  ) {
     return 'NAO_ATENDEU';
   }
 
   if (s === 'OUTRA_CIDADE') return 'OUTRA_CIDADE';
 
-  if (s === 'SO_MORA' || s === 'SO_VOTA' || s === 'NAO_PODE_FAZER_PESQUISA') {
+  if (
+    s === 'SO_MORA' ||
+    s === 'SO_VOTA' ||
+    s === 'NAO_PODE_FAZER_PESQUISA'
+  ) {
     return 'NAO_PODE_FAZER_PESQUISA';
   }
 
-  if (s === 'NUMERO_NAO_EXISTE' || s === 'NUMERO_INEXISTENTE') return 'NUMERO_NAO_EXISTE';
-  if (s === 'REMOVER_DA_LISTA' || s === 'REMOVER_LISTA') return 'REMOVER_DA_LISTA';
+  if (
+    s === 'NUMERO_NAO_EXISTE' ||
+    s === 'NUMERO_INEXISTENTE'
+  ) {
+    return 'NUMERO_NAO_EXISTE';
+  }
+
+  if (
+    s === 'REMOVER_DA_LISTA' ||
+    s === 'REMOVER_LISTA'
+  ) {
+    return 'REMOVER_DA_LISTA';
+  }
+
   if (s === 'RECUSA') return 'RECUSA';
+
   if (s === 'PENDENTE') return 'PENDENTE';
 
   return 'PENDENTE';
 }
 
-function retornoLabelFromObs(obs: string) {
-  var t = String(obs || '').trim();
-  if (/^\d{1,2}:\d{2}$/.test(t)) return t;
+// =========================
+// OUTRA CIDADE HELPERS
+// =========================
+function buildOutraCidadeObs(tipo: OutraCidadeTipo, valor?: string) {
+  const v = String(valor || '').trim();
 
-  var m = t.match(/RETORNO\s*[-–—]?\s*(\d{1,2}:\d{2})/i);
-  return m && m[1] ? m[1] : '';
+  if (tipo === 'NQ_RESPONDER') return 'NQ_RESPONDER';
+
+  return v || 'MORA_VOTA';
 }
 
-function validateHHMM(value: string) {
-  var cleaned = String(value || '').trim();
-  if (!/^\d{1,2}:\d{2}$/.test(cleaned)) return '';
-  var parts = cleaned.split(':');
-  var hh = Number(parts[0]);
-  var mm = Number(parts[1]);
+function outraCidadeFromObs(obs: string) {
+  const t = String(obs || '').trim();
 
-  if (isNaN(hh) || isNaN(mm)) return '';
-  if (hh < 0 || hh > 23) return '';
-  if (mm < 0 || mm > 59) return '';
+  if (t === 'NQ_RESPONDER') return '';
+  return t;
+}
 
-  return zeroPad(hh, 2) + ':' + zeroPad(mm, 2);
+function outraCidadeLabel(obs: string) {
+  const t = String(obs || '').trim();
+
+  if (t === 'NQ_RESPONDER') return 'MORA/VOTA EM OUTRA CIDADE • NQ RESPONDER';
+
+  return t ? `MORA/VOTA EM OUTRA CIDADE • ${t}` : 'MORA/VOTA EM OUTRA CIDADE';
+}
+
+function obsToSave(status: Status, obs: string) {
+  const t = String(obs || '').trim();
+
+  if (status === 'OUTRA_CIDADE') {
+    return t;
+  }
+
+  if (status === 'RETORNO') {
+    const hhmm = retornoLabelFromObs(t) || t.replace(/^RETORNO\s*[-–—]?\s*/i, '').trim();
+    return hhmm;
+  }
+
+  if (status === 'NAO_PODE_FAZER_PESQUISA') {
+    return '';
+  }
+
+  return t;
 }
 
 function parseCsv(csv: string): { headers: string[]; rows: Record<string, string>[] } {
-  var text = String(csv || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  const text = String(csv || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   if (!text) return { headers: [], rows: [] };
 
-  var lines: string[] = [];
-  var cur = '';
-  var inQuotes = false;
+  const lines: string[] = [];
+  let cur = '';
+  let inQuotes = false;
 
-  for (var i = 0; i < text.length; i++) {
-    var ch = text.charAt(i);
-
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
     if (ch === '"') {
-      var next = text.charAt(i + 1);
+      const next = text[i + 1];
       if (inQuotes && next === '"') {
         cur += '"';
         i++;
@@ -380,125 +303,98 @@ function parseCsv(csv: string): { headers: string[]; rows: Record<string, string
       }
       continue;
     }
-
     if (ch === '\n' && !inQuotes) {
       lines.push(cur);
       cur = '';
       continue;
     }
-
     cur += ch;
   }
-
   if (cur) lines.push(cur);
 
-  function splitLine(line: string) {
-    var out: string[] = [];
-    var c = '';
-    var q = false;
+  const splitLine = (line: string) => {
+    const out: string[] = [];
+    let c = '';
+    let q = false;
 
-    for (var j = 0; j < line.length; j++) {
-      var ch2 = line.charAt(j);
-
-      if (ch2 === '"') {
-        var next2 = line.charAt(j + 1);
-        if (q && next2 === '"') {
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        const next = line[i + 1];
+        if (q && next === '"') {
           c += '"';
-          j++;
+          i++;
         } else {
           q = !q;
         }
         continue;
       }
-
-      if (ch2 === ',' && !q) {
+      if (ch === ',' && !q) {
         out.push(c);
         c = '';
         continue;
       }
-
-      c += ch2;
+      c += ch;
     }
-
     out.push(c);
+    return out.map((x) => x.trim());
+  };
 
-    var cleaned: string[] = [];
-    for (var k = 0; k < out.length; k++) {
-      cleaned.push(String(out[k] || '').trim());
-    }
+  const headers = splitLine(lines[0]).map((h) => h.replace(/^"|"$/g, '').trim());
 
-    return cleaned;
-  }
+  const rows = lines.slice(1).map((ln) => {
+    const cols = splitLine(ln);
+    const obj: Record<string, string> = {};
 
-  var rawHeaders = splitLine(lines[0]);
-  var headers: string[] = [];
-  for (var h = 0; h < rawHeaders.length; h++) {
-    headers.push(String(rawHeaders[h] || '').replace(/^"|"$/g, '').trim());
-  }
+    headers.forEach((h, idx) => {
+      obj[h] = (cols[idx] ?? '').replace(/^"|"$/g, '');
+    });
 
-  var rows: Record<string, string>[] = [];
-  for (var r = 1; r < lines.length; r++) {
-    var ln = lines[r];
-    var cols = splitLine(ln);
-    var obj: Record<string, string> = {};
+    return obj;
+  });
 
-    for (var c2 = 0; c2 < headers.length; c2++) {
-      obj[headers[c2]] = String(cols[c2] == null ? '' : cols[c2]).replace(/^"|"$/g, '');
-    }
-
-    rows.push(obj);
-  }
-
-  return { headers: headers, rows: rows };
+  return { headers, rows };
 }
 
 function pickCanonicalValue(obj: Record<string, string>, headers: string[], familyKey: string) {
-  var matchingHeaders: string[] = [];
-
-  for (var i = 0; i < headers.length; i++) {
-    if (canonicalHeaderKey(headers[i]) === familyKey) matchingHeaders.push(headers[i]);
-  }
+  const matchingHeaders = headers.filter((h) => canonicalHeaderKey(h) === familyKey);
 
   if (!matchingHeaders.length) return '';
 
-  var values: string[] = [];
-  for (var j = 0; j < matchingHeaders.length; j++) {
-    var realHeader = matchingHeaders[j];
-    values.push(String(obj[realHeader] == null ? '' : obj[realHeader]).trim());
+  const values = matchingHeaders
+    .map((realHeader) => String(obj[realHeader] ?? '').trim());
+
+  for (let i = values.length - 1; i >= 0; i--) {
+    if (values[i]) return values[i];
   }
 
-  for (var k = values.length - 1; k >= 0; k--) {
-    if (values[k]) return values[k];
-  }
-
-  return values.length ? values[values.length - 1] : '';
+  return values[values.length - 1] || '';
 }
 
 function csvToRows(csv: string): Row[] {
-  var parsed = parseCsv(csv);
-  var headers = parsed.headers;
-  var rows = parsed.rows;
+  const { headers, rows } = parseCsv(csv);
   if (!rows.length) return [];
 
-  var out: Row[] = [];
+  return rows.map((r, idx) => {
+    const lineCsv = pickCanonicalValue(r, headers, 'LINE');
+    const IDP = pickCanonicalValue(r, headers, 'IDP') || String(idx + 1);
 
-  for (var idx = 0; idx < rows.length; idx++) {
-    var r = rows[idx];
-    var lineCsv = pickCanonicalValue(r, headers, 'LINE');
-    var IDP = pickCanonicalValue(r, headers, 'IDP') || String(idx + 1);
-    var ESTADO = pickCanonicalValue(r, headers, 'ESTADO') || '';
-    var CIDADE = pickCanonicalValue(r, headers, 'CIDADE') || '';
-    var REGIAO_CIDADE = pickCanonicalValue(r, headers, 'REGIAO_CIDADE') || '';
-    var TF1 = pickCanonicalValue(r, headers, 'TF1') || '';
-    var TF2 = pickCanonicalValue(r, headers, 'TF2') || '';
-    var statusCsv = pickCanonicalValue(r, headers, 'STATUS') || 'PENDENTE';
-    var obsCsv = pickCanonicalValue(r, headers, 'OBSERVACAO') || '';
-    var dtAlteracaoCsv = pickCanonicalValue(r, headers, 'DT_ALTERACAO') || '';
-    var lineNum = Number(String(lineCsv || '').trim());
+    const ESTADO = pickCanonicalValue(r, headers, 'ESTADO') || '';
+    const CIDADE = pickCanonicalValue(r, headers, 'CIDADE') || '';
+    const REGIAO_CIDADE = pickCanonicalValue(r, headers, 'REGIAO_CIDADE') || '';
 
-    out.push({
-      id: 'row-' + String(idx + 1),
-      LINE: isFinite(lineNum) && lineNum > 0 ? lineNum : idx + 1,
+    const TF1 = pickCanonicalValue(r, headers, 'TF1') || '';
+    const TF2 = pickCanonicalValue(r, headers, 'TF2') || '';
+
+    const statusCsv = pickCanonicalValue(r, headers, 'STATUS') || 'PENDENTE';
+    const obsCsv = pickCanonicalValue(r, headers, 'OBSERVACAO') || '';
+    const dtAlteracaoCsv = pickCanonicalValue(r, headers, 'DT_ALTERACAO') || '';
+
+    const lineNum = Number(String(lineCsv || '').trim());
+
+    return {
+      id: `row-${idx + 1}`,
+      LINE: Number.isFinite(lineNum) && lineNum > 0 ? lineNum : idx + 1,
       IDP: String(IDP || ''),
       ESTADO: String(ESTADO || ''),
       CIDADE: String(CIDADE || ''),
@@ -508,1074 +404,1560 @@ function csvToRows(csv: string): Row[] {
       STATUS: sanitizeStatus(statusCsv),
       OBSERVACAO: String(obsCsv || ''),
       DT_ALTERACAO: String(dtAlteracaoCsv || ''),
-    });
-  }
+    };
+  });
+}
 
-  return out;
+function retornoLabelFromObs(obs: string) {
+  const t = String(obs || '').trim();
+
+  if (/^\d{1,2}:\d{2}$/.test(t)) return t;
+
+  const m = t.match(/RETORNO\s*[-–—]?\s*(\d{1,2}:\d{2})/i);
+  return m?.[1] || '';
 }
 
 function statusText(row: Row) {
-  var s = row.STATUS;
+  const s = row.STATUS;
 
   if (s === 'PESQUISA_FEITA') return 'PESQUISA FEITA';
   if (s === 'NAO_ATENDEU' || s === 'CAIXA_POSTAL') return 'NÃO ATENDEU/CAIXA POSTAL';
   if (s === 'NUMERO_NAO_EXISTE') return 'Nº NÃO EXISTE';
   if (s === 'RECUSA') return 'RECUSA';
   if (s === 'NAO_PODE_FAZER_PESQUISA') return 'NÃO PODE FAZER A PESQUISA';
-  if (s === 'OUTRA_CIDADE') return row.OBSERVACAO ? 'OUTRA CIDADE • ' + row.OBSERVACAO : 'OUTRA CIDADE';
+
+  if (s === 'OUTRA_CIDADE') {
+    return outraCidadeLabel(row.OBSERVACAO);
+  }
 
   if (s === 'RETORNO') {
-    var hhmm = retornoLabelFromObs(row.OBSERVACAO);
-    return hhmm ? 'RETORNO • ' + hhmm : 'RETORNO';
+    const hhmm = retornoLabelFromObs(row.OBSERVACAO);
+    return hhmm ? `RETORNO • ${hhmm}` : 'RETORNO';
   }
 
   if (s === 'REMOVER_DA_LISTA') return 'REMOVER DA LISTA';
+
   return 'PENDENTE';
 }
 
-function statusColor(status: Status) {
-  if (status === 'PESQUISA_FEITA') return COLORS.success;
-  if (status === 'NAO_ATENDEU' || status === 'CAIXA_POSTAL') return COLORS.warning;
-  if (status === 'NUMERO_NAO_EXISTE') return COLORS.danger;
-  if (status === 'RECUSA') return '#be185d';
-  if (status === 'RETORNO') return COLORS.info;
-  if (status === 'OUTRA_CIDADE') return COLORS.orange;
-  if (status === 'NAO_PODE_FAZER_PESQUISA') return COLORS.teal;
-  if (status === 'REMOVER_DA_LISTA') return COLORS.purple;
-  return COLORS.border;
-}
-
-function fallbackCopyText(text: string) {
-  return new Promise<void>(function (resolve, reject) {
-    var ta = document.createElement('textarea');
-    ta.value = text;
-    ta.setAttribute('readonly', 'true');
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    ta.style.left = '-9999px';
-    ta.style.top = '0';
-
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-
-    var ok = false;
-    try {
-      ok = document.execCommand('copy');
-    } catch (e) {
-      ok = false;
-    }
-
-    document.body.removeChild(ta);
-
-    if (!ok) {
-      reject(new Error('Falha ao copiar'));
-      return;
-    }
-
-    resolve();
-  });
-}
-
-function obsToSave(status: Status, obs: string) {
-  var t = String(obs || '').trim();
-
-  if (status === 'RETORNO') {
-    return retornoLabelFromObs(t) || t;
+function statusVars(s: Status) {
+  switch (s) {
+    case 'PESQUISA_FEITA':
+      return { bd: 'var(--success)', bg: 'rgba(22,163,74,.32)' };
+    case 'OUTRA_CIDADE':
+      return { bd: 'var(--orange)', bg: 'rgba(249,115,22,.34)' };
+    case 'NAO_PODE_FAZER_PESQUISA':
+      return { bd: 'var(--teal)', bg: 'rgba(15,118,110,.28)' };
+    case 'RETORNO':
+      return { bd: 'var(--blueDark)', bg: 'rgba(30,58,138,.30)' };
+    case 'NUMERO_NAO_EXISTE':
+      return { bd: 'var(--danger)', bg: 'rgba(239,68,68,.34)' };
+    case 'RECUSA':
+      return { bd: 'var(--pink)', bg: 'rgba(190,24,93,.22)' };
+    case 'NAO_ATENDEU':
+    case 'CAIXA_POSTAL':
+      return { bd: 'var(--warning)', bg: 'rgba(245,158,11,.34)' };
+    case 'REMOVER_DA_LISTA':
+      return { bd: 'var(--purple)', bg: 'rgba(124,58,237,.24)' };
+    default:
+      return { bd: 'var(--border)', bg: 'rgba(0,0,0,.06)' };
   }
-
-  if (status === 'NAO_PODE_FAZER_PESQUISA') return '';
-  if (status === 'PENDENTE') return '';
-  if (status === 'PESQUISA_FEITA') return '';
-  if (status === 'NAO_ATENDEU') return '';
-  if (status === 'NUMERO_NAO_EXISTE') return '';
-  if (status === 'RECUSA') return '';
-  if (status === 'REMOVER_DA_LISTA') return '';
-
-  return t;
 }
 
-function getLocationOriginSafe() {
-  try {
-    if (window.location.origin) return window.location.origin;
-  } catch (e) {}
-
-  try {
-    return window.location.protocol + '//' + window.location.host;
-  } catch (e) {}
-
-  return '';
-}
-
-function countRowsByStatus(rows: Row[], target: Status | 'PENDENTE_ONLY') {
-  var total = 0;
-  for (var i = 0; i < rows.length; i++) {
-    if (target === 'PENDENTE_ONLY') {
-      if (rows[i].STATUS === 'PENDENTE') total++;
-    } else {
-      if (rows[i].STATUS === target) total++;
-    }
+function rowBg(status: Status) {
+  switch (status) {
+    case 'NAO_ATENDEU':
+    case 'CAIXA_POSTAL':
+      return 'rgba(245,158,11,.28)';
+    case 'OUTRA_CIDADE':
+      return 'rgba(249,115,22,.28)';
+    case 'NAO_PODE_FAZER_PESQUISA':
+      return 'rgba(15,118,110,.20)';
+    case 'PESQUISA_FEITA':
+      return 'rgba(22,163,74,.26)';
+    case 'RETORNO':
+      return 'rgba(30,58,138,.24)';
+    case 'NUMERO_NAO_EXISTE':
+      return 'rgba(239,68,68,.24)';
+    case 'RECUSA':
+      return 'rgba(190,24,93,.18)';
+    case 'REMOVER_DA_LISTA':
+      return 'rgba(124,58,237,.20)';
+    default:
+      return 'transparent';
   }
-  return total;
 }
 
-function ActionBtn(props: {
-  label: string;
-  onClick: () => void;
-  color?: string;
-  active?: boolean;
-}) {
+// =========================
+// UI
+// =========================
+function StatusPill({ row }: { row: Row }) {
+  const c = statusVars(row.STATUS);
   return (
-    <button
-      onClick={props.onClick}
+    <span
       style={{
-        ...styles.actionBtn,
-        borderColor: props.color || COLORS.border,
-        background: props.active ? '#f3f4f6' : '#ffffff',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '4px 9px',
+        borderRadius: 999,
+        border: `2px solid ${c.bd}`,
+        background: c.bg,
+        fontWeight: 900,
+        fontSize: 11,
+        color: 'var(--text)',
+        whiteSpace: 'nowrap',
       }}
     >
-      {props.label}
+      {statusText(row)}
+    </span>
+  );
+}
+
+function ActionButton({
+  active,
+  kind,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  kind: 'danger' | 'warning' | 'success' | 'blueDark' | 'blueLight' | 'orange' | 'purple' | 'teal' | 'pink';
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  const base =
+    kind === 'danger'
+      ? { border: '2px solid rgba(239,68,68,.70)', background: 'rgba(239,68,68,.28)', color: 'var(--text)' }
+      : kind === 'orange'
+        ? { border: '2px solid rgba(249,115,22,.70)', background: 'rgba(249,115,22,.28)', color: 'var(--text)' }
+        : kind === 'warning'
+          ? { border: '2px solid rgba(245,158,11,.70)', background: 'rgba(245,158,11,.28)', color: 'var(--text)' }
+          : kind === 'blueDark'
+            ? { border: '2px solid rgba(30,58,138,.65)', background: 'rgba(30,58,138,.24)', color: 'var(--text)' }
+            : kind === 'blueLight'
+              ? { border: '2px solid rgba(56,189,248,.65)', background: 'rgba(56,189,248,.22)', color: 'var(--text)' }
+              : kind === 'purple'
+                ? { border: '2px solid rgba(124,58,237,.65)', background: 'rgba(124,58,237,.22)', color: 'var(--text)' }
+                : kind === 'teal'
+                  ? { border: '2px solid rgba(15,118,110,.65)', background: 'rgba(15,118,110,.18)', color: 'var(--text)' }
+                  : kind === 'pink'
+                    ? { border: '2px solid rgba(190,24,93,.65)', background: 'rgba(190,24,93,.16)', color: 'var(--text)' }
+                    : { border: '2px solid rgba(22,163,74,.65)', background: 'rgba(22,163,74,.24)', color: 'var(--text)' };
+
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        ...styles.btnAction,
+        ...base,
+        ...(active ? styles.btnActive : {}),
+      }}
+    >
+      {children}
     </button>
   );
 }
 
-function RowCard(props: {
-  row: Row;
-  expanded: boolean;
-  onToggle: () => void;
-  onApplyStatus: (row: Row, status: Status) => void;
-  onSetRetorno: (row: Row, value: string) => void;
-  onSetOutraCidade: (row: Row, value: string) => void;
-  onCall: (row: Row, which: 'TF1' | 'TF2') => void;
-  onCopy: (label: string, value: string) => void;
+function MiniTel({
+  label,
+  value,
+  disabled,
+  onClick,
+  onCopy,
+}: {
+  label: string;
+  value: string;
+  disabled: boolean;
+  onClick: () => void;
+  onCopy: () => void;
 }) {
-  var row = props.row;
-  var retornoAtual = row.STATUS === 'RETORNO' ? retornoLabelFromObs(row.OBSERVACAO) : '';
-  var outraCidadeAtual = row.STATUS === 'OUTRA_CIDADE' ? row.OBSERVACAO : '';
+  const enabled = !disabled;
 
   return (
-    <div
-      style={{
-        ...styles.rowCard,
-        borderColor: statusColor(row.STATUS),
-      }}
-    >
-      <button onClick={props.onToggle} style={styles.rowHeaderBtn}>
-        <div style={styles.rowHeaderTop}>
-          <div style={styles.rowId}>IDP {row.IDP}</div>
-          <div
-            style={{
-              ...styles.statusBadge,
-              borderColor: statusColor(row.STATUS),
-            }}
-          >
-            {statusText(row)}
-          </div>
-        </div>
-
-        <div style={styles.rowHeaderBottom}>
-          <div style={styles.rowLine}>Linha: {row.LINE}</div>
-          <div style={styles.rowPhones}>
-            {row.TF1 ? 'TF1: ' + row.TF1 : 'TF1: —'}
-            {' • '}
-            {row.TF2 ? 'TF2: ' + row.TF2 : 'TF2: —'}
-          </div>
-        </div>
-
-        {row.CIDADE || row.ESTADO || row.REGIAO_CIDADE ? (
-          <div style={styles.rowGeo}>
-            {row.CIDADE || '—'}
-            {row.ESTADO ? ' / ' + row.ESTADO : ''}
-            {row.REGIAO_CIDADE ? ' • ' + row.REGIAO_CIDADE : ''}
-          </div>
-        ) : null}
+    <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+      <button
+        disabled={!enabled}
+        onClick={onClick}
+        style={{
+          ...styles.btn,
+          ...styles.btnPrimary,
+          background: enabled ? 'var(--primary)' : 'var(--surfaceMuted)',
+          color: enabled ? 'var(--primary-text)' : 'var(--text-muted)',
+          borderColor: 'var(--border)',
+          padding: '9px 12px',
+          borderRadius: 10,
+          fontSize: 12,
+          fontWeight: 900,
+          cursor: enabled ? 'pointer' : 'not-allowed',
+          whiteSpace: 'nowrap',
+        }}
+        title={value || ''}
+      >
+        {`Ligar ${label} 📞`}
       </button>
 
-      {props.expanded ? (
-        <div style={styles.rowBody}>
-          <div style={styles.sectionTitle}>Ações rápidas</div>
-
-          <div style={styles.btnGrid}>
-            <ActionBtn
-              label="Pesquisa feita"
-              color={COLORS.success}
-              active={row.STATUS === 'PESQUISA_FEITA'}
-              onClick={function () {
-                props.onApplyStatus(row, 'PESQUISA_FEITA');
-              }}
-            />
-            <ActionBtn
-              label="Não atendeu"
-              color={COLORS.warning}
-              active={row.STATUS === 'NAO_ATENDEU'}
-              onClick={function () {
-                props.onApplyStatus(row, 'NAO_ATENDEU');
-              }}
-            />
-            <ActionBtn
-              label="Nº não existe"
-              color={COLORS.danger}
-              active={row.STATUS === 'NUMERO_NAO_EXISTE'}
-              onClick={function () {
-                props.onApplyStatus(row, 'NUMERO_NAO_EXISTE');
-              }}
-            />
-            <ActionBtn
-              label="Recusa"
-              color={'#be185d'}
-              active={row.STATUS === 'RECUSA'}
-              onClick={function () {
-                props.onApplyStatus(row, 'RECUSA');
-              }}
-            />
-            <ActionBtn
-              label="Não pode pesquisar"
-              color={COLORS.teal}
-              active={row.STATUS === 'NAO_PODE_FAZER_PESQUISA'}
-              onClick={function () {
-                props.onApplyStatus(row, 'NAO_PODE_FAZER_PESQUISA');
-              }}
-            />
-            <ActionBtn
-              label="Remover da lista"
-              color={COLORS.purple}
-              active={row.STATUS === 'REMOVER_DA_LISTA'}
-              onClick={function () {
-                props.onApplyStatus(row, 'REMOVER_DA_LISTA');
-              }}
-            />
-            <ActionBtn
-              label="Voltar para pendente"
-              active={row.STATUS === 'PENDENTE'}
-              onClick={function () {
-                props.onApplyStatus(row, 'PENDENTE');
-              }}
-            />
-          </div>
-
-          <div style={styles.sectionTitle}>Retorno</div>
-          <div style={styles.inlineRow}>
-            <input
-              type="text"
-              inputMode="numeric"
-              defaultValue={retornoAtual}
-              placeholder="HH:MM"
-              style={styles.input}
-              id={'retorno-' + row.id}
-            />
-            <button
-              style={styles.primaryBtn}
-              onClick={function () {
-                var el = document.getElementById('retorno-' + row.id) as HTMLInputElement | null;
-                var val = el ? el.value : '';
-                props.onSetRetorno(row, val);
-              }}
-            >
-              Salvar retorno
-            </button>
-          </div>
-
-          <div style={styles.sectionTitle}>Mora/Vota em outra cidade</div>
-          <div style={styles.inlineRow}>
-            <input
-              type="text"
-              defaultValue={outraCidadeAtual}
-              placeholder="Digite a cidade ou NQ_RESPONDER"
-              style={styles.input}
-              id={'cidade-' + row.id}
-            />
-            <button
-              style={styles.primaryBtn}
-              onClick={function () {
-                var el = document.getElementById('cidade-' + row.id) as HTMLInputElement | null;
-                var val = el ? el.value : '';
-                props.onSetOutraCidade(row, val);
-              }}
-            >
-              Salvar cidade
-            </button>
-          </div>
-
-          <div style={styles.sectionTitle}>Telefone / cópia</div>
-          <div style={styles.btnGrid}>
-            <button
-              style={styles.primaryBtn}
-              disabled={!row.TF1}
-              onClick={function () {
-                props.onCall(row, 'TF1');
-              }}
-            >
-              Ligar TF1
-            </button>
-            <button
-              style={styles.primaryBtn}
-              disabled={!row.TF2}
-              onClick={function () {
-                props.onCall(row, 'TF2');
-              }}
-            >
-              Ligar TF2
-            </button>
-            <button
-              style={styles.secondaryBtn}
-              disabled={!row.TF1}
-              onClick={function () {
-                props.onCopy('TF1', row.TF1);
-              }}
-            >
-              Copiar TF1
-            </button>
-            <button
-              style={styles.secondaryBtn}
-              disabled={!row.TF2}
-              onClick={function () {
-                props.onCopy('TF2', row.TF2);
-              }}
-            >
-              Copiar TF2
-            </button>
-            <button
-              style={styles.secondaryBtn}
-              onClick={function () {
-                props.onCopy('IDP', row.IDP);
-              }}
-            >
-              Copiar IDP
-            </button>
-          </div>
-
-          {row.DT_ALTERACAO ? (
-            <div style={styles.lastInfo}>Última alteração: {row.DT_ALTERACAO}</div>
-          ) : null}
-        </div>
-      ) : null}
+      <button
+        disabled={!value}
+        onClick={onCopy}
+        style={{
+          ...styles.btn,
+          ...styles.btnPrimary,
+          background: value ? 'var(--primary)' : 'var(--surfaceMuted)',
+          color: value ? 'var(--primary-text)' : 'var(--text-muted)',
+          borderColor: 'var(--border)',
+          padding: '9px 12px',
+          borderRadius: 10,
+          fontSize: 12,
+          fontWeight: 900,
+          cursor: value ? 'pointer' : 'not-allowed',
+          whiteSpace: 'nowrap',
+        }}
+        title={value ? `Copiar ${label}` : ''}
+      >
+        {`Copiar ${label}`}
+      </button>
     </div>
   );
 }
 
-function AppErrorFallback(props: { text: string }) {
+// =========================
+// MODAL: Retorno (time)
+// =========================
+function RetornoModal({
+  open,
+  initialValue,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  initialValue: string;
+  onCancel: () => void;
+  onConfirm: (hhmm: string) => void;
+}) {
+  const [value, setValue] = useState(initialValue || '');
+
+  useEffect(() => {
+    setValue(initialValue || '');
+  }, [initialValue, open]);
+
+  if (!open) return null;
+
   return (
-    <div style={{ padding: 12 }}>
-      <style>{globalCss}</style>
-      <div style={styles.card}>
-        <div style={{ padding: 14 }}>
-          <div style={styles.title}>Erro no app</div>
-          <div style={styles.errorText}>{props.text}</div>
+    <div onClick={onCancel} style={stylesModal.overlay}>
+      <div onClick={(e) => e.stopPropagation()} style={stylesModal.box}>
+        <div style={stylesModal.header}>
+          <div style={stylesModal.title}>⏰ Agendar retorno</div>
+          <div style={stylesModal.sub}>Selecione a hora e o minuto</div>
+        </div>
+
+        <div style={{ padding: 12 }}>
+          <input
+            type="time"
+            step={60}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            style={stylesModal.input}
+          />
+
+          <div style={stylesModal.rowBtns}>
+            <button style={styles.btn} onClick={onCancel}>
+              Cancelar
+            </button>
+            <button
+              style={{ ...styles.btn, ...styles.btnPrimary }}
+              onClick={() => {
+                const cleaned = String(value || '').trim();
+                if (!cleaned || !/^\d{2}:\d{2}$/.test(cleaned)) {
+                  window.alert('Selecione um horário válido.');
+                  return;
+                }
+                onConfirm(cleaned);
+              }}
+            >
+              Confirmar
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-export function App() {
-  var _a = useState(true),
-    loading = _a[0],
-    setLoading = _a[1];
-  var _b = useState(''),
-    error = _b[0],
-    setError = _b[1];
+// =========================
+// MODAL: Outra cidade
+// =========================
+type IbgeMunicipio = {
+  id: number;
+  nome: string;
+  microrregiao?: {
+    mesorregiao?: {
+      UF?: { sigla?: string; nome?: string };
+    };
+  };
+};
 
-  var _c = useState([] as Row[]),
-    allRows = _c[0],
-    setAllRows = _c[1];
+function getUfNomeFromMunicipio(m: IbgeMunicipio) {
+  return m?.microrregiao?.mesorregiao?.UF?.nome || m?.microrregiao?.mesorregiao?.UF?.sigla || '';
+}
 
-  var _d = useState(null as PartePayload[] | null),
-    payload = _d[0],
-    setPayload = _d[1];
+function cityLabel(nome: string, estadoNome: string) {
+  const n = String(nome || '').trim();
+  const e = String(estadoNome || '').trim();
+  if (!n) return '';
+  return e ? `${n}/${e}` : n;
+}
 
-  var _e = useState('TODOS' as StatusFilter),
-    statusFilter = _e[0],
-    setStatusFilter = _e[1];
+function OutraCidadeModal({
+  open,
+  initialValue,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  initialValue: string;
+  onCancel: () => void;
+  onConfirm: (payload: { tipo: OutraCidadeTipo; city: string }) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [loadErr, setLoadErr] = useState('');
+  const [all, setAll] = useState<{ label: string; nome: string; estado: string }[]>([]);
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState('');
 
-  var _f = useState(1),
-    page = _f[0],
-    setPage = _f[1];
+  useEffect(() => {
+    if (!open) return;
 
-  var _g = useState(''),
-    expandedId = _g[0],
-    setExpandedId = _g[1];
+    setLoadErr('');
+    setQuery(initialValue || '');
+    setSelected(initialValue || '');
 
-  var _h = useState({} as Record<string, DirtyRow>),
-    dirty = _h[0],
-    setDirty = _h[1];
+    if (all.length) return;
 
-  var _i = useState(false),
-    saving = _i[0],
-    setSaving = _i[1];
+    (async () => {
+      try {
+        setLoading(true);
+        setLoadErr('');
+        const resp = await fetch(IBGE_MUNICIPIOS_API, { cache: 'force-cache' });
+        const raw = await resp.text().catch(() => '');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} • ${raw || 'Sem body'}`);
 
-  var _j = useState(''),
-    saveError = _j[0],
-    setSaveError = _j[1];
+        let data: any;
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          throw new Error('Resposta do IBGE não é JSON.');
+        }
 
-  var _k = useState(''),
-    lastSavedAt = _k[0],
-    setLastSavedAt = _k[1];
+        const list: IbgeMunicipio[] = Array.isArray(data) ? data : [];
+        const mapped = list
+          .map((m) => {
+            const estado = getUfNomeFromMunicipio(m);
+            const nome = String(m?.nome || '').trim();
+            const label = cityLabel(nome, estado);
+            return { label, nome, estado };
+          })
+          .filter((x) => x.label)
+          .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
 
-  var _l = useState(''),
-    toast = _l[0],
-    setToast = _l[1];
+        setAll(mapped);
+      } catch (e: any) {
+        setLoadErr(String(e?.message || e || 'Erro ao carregar cidades do IBGE'));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [open, initialValue, all.length]);
 
-  useEffect(function () {
-    var entregaId = getEntregaIdOnly();
+  const options = useMemo(() => {
+    const q = String(query || '').trim().toLowerCase();
 
+    if (!all.length) return [];
+
+    if (!q) return all.slice(0, 50);
+
+    const startsWithNome = all.filter((c) =>
+      String(c.nome || '').trim().toLowerCase().startsWith(q)
+    );
+
+    if (startsWithNome.length) {
+      return startsWithNome
+        .sort((a, b) => {
+          const aNome = a.nome.toLowerCase();
+          const bNome = b.nome.toLowerCase();
+
+          if (aNome === q && bNome !== q) return -1;
+          if (bNome === q && aNome !== q) return 1;
+
+          return a.label.localeCompare(b.label, 'pt-BR');
+        })
+        .slice(0, 50);
+    }
+
+    const startsWithWordInNome = all.filter((c) =>
+      String(c.nome || '')
+        .trim()
+        .toLowerCase()
+        .split(/\s+/)
+        .some((part) => part.startsWith(q))
+    );
+
+    if (startsWithWordInNome.length) {
+      return startsWithWordInNome
+        .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
+        .slice(0, 50);
+    }
+
+    return [];
+  }, [all, query]);
+
+  if (!open) return null;
+
+  return (
+    <div onClick={onCancel} style={stylesModal.overlay}>
+      <div onClick={(e) => e.stopPropagation()} style={{ ...stylesModal.box, width: 'min(560px, 96vw)' }}>
+        <div style={stylesModal.header}>
+          <div style={stylesModal.title}> Mora/Vota em outra cidade</div>
+          <div style={stylesModal.sub}>Digite o começo do nome da cidade ou escolha NQ Responder</div>
+        </div>
+
+        <div style={{ padding: 12 }}>
+          {loadErr ? (
+            <div
+              style={{
+                marginBottom: 10,
+                padding: 10,
+                border: '1px solid var(--danger)',
+                borderRadius: 10,
+                fontSize: 12,
+              }}
+            >
+              ❌ {loadErr}
+            </div>
+          ) : null}
+
+          <input
+            value={query}
+            onChange={(e) => {
+              const v = e.target.value;
+              setQuery(v);
+              setSelected(v);
+            }}
+            placeholder={loading ? 'Carregando lista do IBGE…' : 'Digite a cidade (ex: Santos, São Paulo, Mauá)'}
+            style={stylesModal.textInput}
+            disabled={loading || !!loadErr}
+            autoFocus
+          />
+
+          <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setQuery('');
+                setSelected('NQ_RESPONDER');
+              }}
+              style={{
+                ...styles.btn,
+                background: selected === 'NQ_RESPONDER' ? 'rgba(249,115,22,.14)' : 'var(--surface)',
+              }}
+            >
+              NQ Responder
+            </button>
+          </div>
+
+          <div
+            style={{
+              marginTop: 10,
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              background: 'var(--surface)',
+              maxHeight: 260,
+              overflowY: 'auto',
+            }}
+          >
+            {loading ? (
+              <div style={{ padding: 12, fontSize: 13, color: 'var(--text-muted)' }}>Carregando cidades…</div>
+            ) : options.length ? (
+              options.map((c) => {
+                const active = selected === c.label;
+                return (
+                  <button
+                    key={c.label}
+                    type="button"
+                    onClick={() => {
+                      setQuery(c.label);
+                      setSelected(c.label);
+                    }}
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '10px 12px',
+                      border: 'none',
+                      borderBottom: '1px solid var(--border)',
+                      background: active ? 'rgba(249,115,22,.14)' : 'var(--surface)',
+                      color: 'var(--text)',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      fontWeight: active ? 900 : 700,
+                    }}
+                  >
+                    {c.label}
+                  </button>
+                );
+              })
+            ) : (
+              <div style={{ padding: 12, fontSize: 13, color: 'var(--text-muted)' }}>
+                Nenhuma cidade encontrada.
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+            {loading
+              ? 'Carregando…'
+              : all.length
+                ? `Total de cidades: ${all.length} • Mostrando até ${options.length}`
+                : '—'}
+          </div>
+
+          <div style={stylesModal.rowBtns}>
+            <button style={styles.btn} onClick={onCancel}>
+              Cancelar
+            </button>
+            <button
+              style={{ ...styles.btn, ...styles.btnPrimary }}
+              onClick={() => {
+                if (selected === 'NQ_RESPONDER') {
+                  onConfirm({ tipo: 'NQ_RESPONDER', city: '' });
+                  return;
+                }
+
+                const city = String(selected || query || '').trim();
+                if (!city) {
+                  window.alert('Selecione uma cidade ou NQ Responder.');
+                  return;
+                }
+
+                onConfirm({ tipo: 'MORA_VOTA', city });
+              }}
+              disabled={loading || !!loadErr}
+            >
+              Confirmar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =========================
+// MODAL: Ações da linha
+// =========================
+function RowActionsModal({
+  open,
+  row,
+  onClose,
+  onToggleStatus,
+  onCall,
+  onCopy,
+  onOpenRetorno,
+  onOpenOutraCidade,
+  onSetNaoPodeFazerPesquisa,
+}: {
+  open: boolean;
+  row: Row | null;
+  onClose: () => void;
+  onToggleStatus: (next: Exclude<Status, 'PENDENTE'>) => void;
+  onCall: (which: 'TF1' | 'TF2') => void;
+  onCopy: (label: string, value: string) => void;
+  onOpenRetorno: () => void;
+  onOpenOutraCidade: () => void;
+  onSetNaoPodeFazerPesquisa: () => void;
+}) {
+  if (!open || !row) return null;
+
+  const tf1 = safeTel(row.TF1);
+  const tf2 = safeTel(row.TF2);
+
+  const isNaoAtendeuOuCaixa = row.STATUS === 'NAO_ATENDEU' || row.STATUS === 'CAIXA_POSTAL';
+
+  return (
+    <div onClick={onClose} style={stylesModal.overlay}>
+      <div onClick={(e) => e.stopPropagation()} style={{ ...stylesModal.box, width: 'min(760px, 96vw)' }}>
+        <div style={stylesModal.header}>
+          <div style={stylesModal.title}>Ações • IDP {row.IDP}</div>
+          <div style={stylesModal.sub}>
+            Status atual: <b>{statusText(row)}</b>
+          </div>
+        </div>
+
+        <div style={{ padding: 12, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <ActionButton
+            active={row.STATUS === 'PESQUISA_FEITA'}
+            kind="success"
+            onClick={() => {
+              onToggleStatus('PESQUISA_FEITA');
+              onClose();
+            }}
+          >
+            Pesquisa Feita
+          </ActionButton>
+
+          <ActionButton
+            active={isNaoAtendeuOuCaixa}
+            kind="warning"
+            onClick={() => {
+              onToggleStatus('NAO_ATENDEU');
+              onClose();
+            }}
+          >
+            Não atendeu/caixa postal
+          </ActionButton>
+
+          <ActionButton
+            active={row.STATUS === 'NUMERO_NAO_EXISTE'}
+            kind="danger"
+            onClick={() => {
+              onToggleStatus('NUMERO_NAO_EXISTE');
+              onClose();
+            }}
+          >
+            Nº Não Existe
+          </ActionButton>
+
+          <ActionButton
+            active={row.STATUS === 'RECUSA'}
+            kind="pink"
+            onClick={() => {
+              onToggleStatus('RECUSA');
+              onClose();
+            }}
+          >
+            Recusa
+          </ActionButton>
+
+          <ActionButton
+            active={row.STATUS === 'RETORNO'}
+            kind="blueDark"
+            onClick={() => {
+              if (row.STATUS === 'RETORNO') {
+                onToggleStatus('RETORNO');
+                onClose();
+                return;
+              }
+              onOpenRetorno();
+            }}
+          >
+            Retorno
+          </ActionButton>
+
+          <ActionButton
+            active={row.STATUS === 'OUTRA_CIDADE'}
+            kind="orange"
+            onClick={() => {
+              onOpenOutraCidade();
+            }}
+          >
+            Mora/Vota em outra cidade
+          </ActionButton>
+
+          <ActionButton
+            active={row.STATUS === 'NAO_PODE_FAZER_PESQUISA'}
+            kind="teal"
+            onClick={() => {
+              onSetNaoPodeFazerPesquisa();
+              onClose();
+            }}
+          >
+            Não pode fazer a pesquisa
+          </ActionButton>
+
+          <ActionButton
+            active={row.STATUS === 'REMOVER_DA_LISTA'}
+            kind="purple"
+            onClick={() => {
+              onToggleStatus('REMOVER_DA_LISTA');
+              onClose();
+            }}
+          >
+            Remover da lista
+          </ActionButton>
+        </div>
+
+        <div style={{ padding: 12, borderTop: '1px solid var(--border)', background: 'var(--surfaceMuted)' }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                style={{ ...styles.btn, ...styles.btnPrimary }}
+                onClick={() => onCopy('IDP', row.IDP)}
+                title="Copiar IDP"
+              >
+                Copiar IDP 📋
+              </button>
+
+              <MiniTel label="TF1" value={row.TF1} disabled={!tf1} onClick={() => onCall('TF1')} onCopy={() => onCopy('TF1', row.TF1)} />
+              <MiniTel label="TF2" value={row.TF2} disabled={!tf2} onClick={() => onCall('TF2')} onCopy={() => onCopy('TF2', row.TF2)} />
+            </div>
+
+            <button style={styles.btn} onClick={onClose}>
+              Fechar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =========================
+// MAIN PAGE
+// =========================
+function MiniAppTabela() {
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [lastSavedAt, setLastSavedAt] = useState('');
+  const [saveTick, setSaveTick] = useState(0);
+
+  const [payload, setPayload] = useState<PartePayload[] | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string>('');
+
+  const [allRows, setAllRows] = useState<Row[]>([]);
+
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
+  const [estadoFilter, setEstadoFilter] = useState<string>('TODOS');
+  const [cidadeFilter, setCidadeFilter] = useState<string>('TODAS');
+  const [regiaoFilter, setRegiaoFilter] = useState<string>('TODAS');
+
+  const [page, setPage] = useState(1);
+
+  const [toast, setToast] = useState<string>('');
+
+  const [dirty, setDirty] = useState<Record<string, DirtyRow>>({});
+  const dirtyCount = useMemo(() => Object.keys(dirty).length, [dirty]);
+
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [activeRowId, setActiveRowId] = useState<string>('');
+  const activeRow = useMemo(() => allRows.find((r) => r.id === activeRowId) || null, [allRows, activeRowId]);
+
+  const [retornoModalOpen, setRetornoModalOpen] = useState(false);
+  const [retornoInitial, setRetornoInitial] = useState<string>('');
+
+  const [outraCidadeModalOpen, setOutraCidadeModalOpen] = useState(false);
+  const [outraCidadeInitial, setOutraCidadeInitial] = useState<string>('');
+
+  useEffect(() => {
+    const entregaId = getEntregaIdOnly();
     if (!entregaId) {
-      setLoading(false);
       setError('Sem entregaId na URL. Abra com: #/?entregaId=SEU_ID');
       return;
     }
 
-    setLoading(true);
-    setError('');
+    (async () => {
+      try {
+        setLoading(true);
+        setError('');
+        setPayload(null);
 
-    requestText(API_GET_ENTREGA + '?entregasId=' + encodeURIComponent(entregaId))
-      .then(function (resp) {
-        return resp.text().then(function (raw) {
-          if (!resp.ok) throw new Error('HTTP ' + resp.status + ' • ' + (raw || 'Sem body'));
-          if (!String(raw || '').trim()) throw new Error('Servidor respondeu vazio.');
+        const url = `${API_GET_ENTREGA}?entregasId=${encodeURIComponent(entregaId)}`;
+        const resp = await fetch(url, { cache: 'no-store' });
 
-          var data: any;
-          try {
-            data = JSON.parse(raw);
-          } catch (e) {
-            throw new Error('Resposta não é JSON.');
-          }
+        const raw = await resp.text().catch(() => '');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} • ${raw || 'Sem body'}`);
+        if (!raw.trim()) throw new Error('Servidor respondeu vazio (sem JSON).');
 
-          setPayload(Array.isArray(data) ? data : [data]);
-        });
-      })
-      .catch(function (e: any) {
-        setError(String((e && e.message) || e || 'Erro ao buscar payload'));
-      })
-      .then(function () {
+        let data: any;
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          throw new Error(`Resposta não é JSON. Início: ${raw.slice(0, 300)}`);
+        }
+
+        setPayload(Array.isArray(data) ? data : [data]);
+      } catch (e: any) {
+        setError(String(e?.message || e || 'Erro ao buscar payload'));
+        setPayload(null);
+      } finally {
         setLoading(false);
-      });
+      }
+    })();
   }, []);
 
-  useEffect(function () {
-    if (!payload || !payload.length) return;
+  useEffect(() => {
+    if (!payload || payload.length === 0) return;
 
-    var item = payload[0];
-    var csv = String((item && item.csv) || '');
+    const item = payload[0] as PartePayload;
+    const csv = String(item?.csv || '');
 
     if (!csv.trim()) {
       setAllRows([]);
-      setError('Payload chegou, mas não veio CSV.');
+      setError('Payload chegou, mas não veio o CSV.');
       return;
     }
 
-    var rows = csvToRows(csv);
+    const rows = csvToRows(csv);
     setAllRows(rows);
+
+    setDirty({});
+    setPage(1);
     setError('');
   }, [payload]);
 
-  useEffect(function () {
-    setPage(1);
-  }, [statusFilter]);
+  const geoCols = useMemo(() => {
+    const hasEstado = allRows.some((r) => String(r.ESTADO || '').trim().length > 0);
+    const hasCidade = allRows.some((r) => String(r.CIDADE || '').trim().length > 0);
+    const hasRegiao = allRows.some((r) => String(r.REGIAO_CIDADE || '').trim().length > 0);
+    return { estado: hasEstado, cidade: hasCidade, regiao: hasRegiao };
+  }, [allRows]);
 
-  useEffect(function () {
-    var keys = Object.keys(dirty);
-    if (!keys.length) return;
+  const estadosDisponiveis = useMemo(() => {
+    if (!geoCols.estado) return [];
+    const s = new Set<string>();
+    for (const r of allRows) {
+      const v = String(r.ESTADO || '').trim();
+      if (v) s.add(v);
+    }
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [allRows, geoCols.estado]);
 
-    var entrega_id = getEntregaIdOnly();
-    if (!entrega_id) return;
+  const cidadesDisponiveis = useMemo(() => {
+    if (!geoCols.cidade) return [];
+    const s = new Set<string>();
+    for (const r of allRows) {
+      const v = String(r.CIDADE || '').trim();
+      if (v) s.add(v);
+    }
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [allRows, geoCols.cidade]);
 
-    var timer = setTimeout(function () {
-      var changes: any[] = [];
+  const regioesDisponiveis = useMemo(() => {
+    if (!geoCols.regiao) return [];
+    const s = new Set<string>();
+    for (const r of allRows) {
+      const v = String(r.REGIAO_CIDADE || '').trim();
+      if (v) s.add(v);
+    }
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [allRows, geoCols.regiao]);
 
-      for (var i = 0; i < keys.length; i++) {
-        var lineKey = keys[i];
-        var v = dirty[lineKey];
-        if (!v) continue;
-
-        changes.push({
-          LINE: Number(lineKey),
-          STATUS: v.STATUS,
-          OBSERVACAO: obsToSave(v.STATUS, v.OBSERVACAO),
-          DT_ALTERACAO: v.DT_ALTERACAO,
-          UPDATED_AT_MS: v.UPDATED_AT_MS,
-          ts: nowLocalStampSemMs(),
-        });
+  const filteredRows = useMemo(() => {
+    return allRows.filter((r) => {
+      if (geoCols.estado && estadoFilter !== 'TODOS') {
+        const v = String(r.ESTADO || '').trim();
+        if (v !== estadoFilter) return false;
+      }
+      if (geoCols.cidade && cidadeFilter !== 'TODAS') {
+        const v = String(r.CIDADE || '').trim();
+        if (v !== cidadeFilter) return false;
+      }
+      if (geoCols.regiao && regiaoFilter !== 'TODAS') {
+        const v = String(r.REGIAO_CIDADE || '').trim();
+        if (v !== regiaoFilter) return false;
       }
 
-      setSaving(true);
-      setSaveError('');
+      if (statusFilter === 'PENDENTES') return r.STATUS === 'PENDENTE';
+      if (statusFilter !== 'TODOS') return r.STATUS === statusFilter;
 
-      requestText(API_SAVE_PARTE, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          entrega_id: entrega_id,
-          changes: changes,
-        }),
-      })
-        .then(function (resp) {
-          return resp.text().then(function (txt) {
-            if (!resp.ok) throw new Error('HTTP ' + resp.status + ' • ' + (txt || 'Sem body'));
-            setDirty({});
-            setLastSavedAt(nowLocalStampSemMs());
-          });
-        })
-        .catch(function (e: any) {
-          setSaveError(String((e && e.message) || e || 'Erro ao salvar'));
-        })
-        .then(function () {
-          setSaving(false);
-        });
-    }, 900);
+      return true;
+    });
+  }, [allRows, statusFilter, estadoFilter, cidadeFilter, regiaoFilter, geoCols]);
 
-    return function () {
-      clearTimeout(timer);
-    };
-  }, [dirty]);
+  useEffect(() => setPage(1), [statusFilter, estadoFilter, cidadeFilter, regiaoFilter]);
 
-  useEffect(function () {
-    if (!toast) return;
-    var timer = setTimeout(function () {
-      setToast('');
-    }, 2500);
-
-    return function () {
-      clearTimeout(timer);
-    };
-  }, [toast]);
-
-  function showToast(message: string) {
-    setToast(message);
-  }
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const pageRows = useMemo(() => {
+    const from = (page - 1) * PAGE_SIZE;
+    return filteredRows.slice(from, from + PAGE_SIZE);
+  }, [filteredRows, page]);
 
   function updateRow(id: string, patch: Partial<Row>) {
-    setAllRows(function (prev) {
-      var out: Row[] = [];
-      for (var i = 0; i < prev.length; i++) {
-        var row = prev[i];
-        if (row.id === id) {
-          out.push({
-            id: row.id,
-            LINE: patch.LINE != null ? patch.LINE : row.LINE,
-            IDP: patch.IDP != null ? patch.IDP : row.IDP,
-            ESTADO: patch.ESTADO != null ? patch.ESTADO : row.ESTADO,
-            CIDADE: patch.CIDADE != null ? patch.CIDADE : row.CIDADE,
-            REGIAO_CIDADE: patch.REGIAO_CIDADE != null ? patch.REGIAO_CIDADE : row.REGIAO_CIDADE,
-            TF1: patch.TF1 != null ? patch.TF1 : row.TF1,
-            TF2: patch.TF2 != null ? patch.TF2 : row.TF2,
-            STATUS: patch.STATUS != null ? patch.STATUS : row.STATUS,
-            OBSERVACAO: patch.OBSERVACAO != null ? patch.OBSERVACAO : row.OBSERVACAO,
-            DT_ALTERACAO: patch.DT_ALTERACAO != null ? patch.DT_ALTERACAO : row.DT_ALTERACAO,
-          });
-        } else {
-          out.push(row);
-        }
-      }
-      return out;
-    });
+    setAllRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   }
 
-  function markDirty(row: Row, nextStatus: Status, nextObs: string, stamp: string) {
-    setDirty(function (prev) {
-      var lineKey = String(row.LINE);
-      var copy: Record<string, DirtyRow> = {};
-      var keys = Object.keys(prev);
+  function markDirty(
+    row: Row,
+    patch: {
+      STATUS?: Status;
+      OBSERVACAO?: string;
+      DT_ALTERACAO?: string;
+      UPDATED_AT_MS?: number;
+    }
+  ) {
+    const nextStatus = patch.STATUS ?? row.STATUS;
+    const nextObs = patch.OBSERVACAO ?? row.OBSERVACAO ?? '';
+    const nextDtAlteracao = patch.DT_ALTERACAO ?? nowLocalStampPreciso();
+    const nextUpdatedAtMs = patch.UPDATED_AT_MS ?? Date.now();
 
-      for (var i = 0; i < keys.length; i++) {
-        copy[keys[i]] = prev[keys[i]];
+    setDirty((prev) => {
+      const current = prev[String(row.LINE)];
+
+      if (current?.UPDATED_AT_MS && current.UPDATED_AT_MS > nextUpdatedAtMs) {
+        return prev;
       }
 
-      copy[lineKey] = {
-        STATUS: nextStatus,
-        OBSERVACAO: nextObs,
-        DT_ALTERACAO: stamp,
-        UPDATED_AT_MS: Date.now(),
+      return {
+        ...prev,
+        [String(row.LINE)]: {
+          STATUS: nextStatus,
+          OBSERVACAO: nextObs,
+          DT_ALTERACAO: nextDtAlteracao,
+          UPDATED_AT_MS: nextUpdatedAtMs,
+        },
       };
-
-      return copy;
     });
+
+    setSaveTick((x) => x + 1);
   }
 
-  function applyStatus(row: Row, status: Status, obs?: string) {
-    var nextObs = typeof obs === 'string' ? obs : row.OBSERVACAO;
-
-    if (status === 'PENDENTE') nextObs = '';
-    if (status === 'NAO_PODE_FAZER_PESQUISA') nextObs = '';
-    if (status === 'PESQUISA_FEITA') nextObs = '';
-    if (status === 'NAO_ATENDEU') nextObs = '';
-    if (status === 'NUMERO_NAO_EXISTE') nextObs = '';
-    if (status === 'RECUSA') nextObs = '';
-    if (status === 'REMOVER_DA_LISTA') nextObs = '';
-
-    var stamp = nowLocalStampSemMs();
+  function applyRowChange(row: Row, nextStatus: Status, nextObs: string) {
+    const stamp = nowLocalStampPreciso();
+    const updatedAtMs = Date.now();
 
     updateRow(row.id, {
-      STATUS: status,
+      STATUS: nextStatus,
       OBSERVACAO: nextObs,
       DT_ALTERACAO: stamp,
     });
 
-    markDirty(row, status, nextObs, stamp);
+    markDirty(row, {
+      STATUS: nextStatus,
+      OBSERVACAO: nextObs,
+      DT_ALTERACAO: stamp,
+      UPDATED_AT_MS: updatedAtMs,
+    });
   }
 
-  function setRetorno(row: Row, value: string) {
-    var hhmm = validateHHMM(value);
-    if (!hhmm) {
-      window.alert('Digite o retorno no formato HH:MM.');
+  function toggleStatusForRow(row: Row, next: Exclude<Status, 'PENDENTE'>) {
+    const newStatus: Status = row.STATUS === next ? 'PENDENTE' : next;
+
+    let nextObs = row.OBSERVACAO;
+
+    if (row.STATUS === 'RETORNO' && newStatus !== 'RETORNO') nextObs = '';
+    if (row.STATUS === 'OUTRA_CIDADE' && newStatus !== 'OUTRA_CIDADE') nextObs = '';
+    if (newStatus === 'NAO_PODE_FAZER_PESQUISA' && nextObs) nextObs = '';
+    if (row.STATUS === 'NAO_PODE_FAZER_PESQUISA' && newStatus !== row.STATUS) nextObs = '';
+
+    applyRowChange(row, newStatus, nextObs);
+  }
+
+  function setNaoPodeFazerPesquisaForRow(row: Row) {
+    applyRowChange(row, 'NAO_PODE_FAZER_PESQUISA', '');
+  }
+
+  function openRowActions(row: Row) {
+    setActiveRowId(row.id);
+    setActionsOpen(true);
+  }
+
+  function openRetornoPicker(row: Row) {
+    const current = retornoLabelFromObs(row.OBSERVACAO) || '';
+    setRetornoInitial(current);
+    setRetornoModalOpen(true);
+  }
+
+  function confirmRetorno(hhmm: string) {
+    const row = activeRow;
+    if (!row) {
+      setRetornoModalOpen(false);
       return;
     }
 
-    applyStatus(row, 'RETORNO', hhmm);
-    showToast('Retorno salvo: ' + hhmm);
-  }
-
-  function setOutraCidade(row: Row, value: string) {
-    var city = String(value || '').trim();
-    if (!city) {
-      window.alert('Digite a cidade ou NQ_RESPONDER.');
+    const cleaned = String(hhmm || '').trim();
+    if (!/^\d{1,2}:\d{2}$/.test(cleaned)) {
+      window.alert('Selecione um horário válido.');
       return;
     }
 
-    applyStatus(row, 'OUTRA_CIDADE', city);
-    showToast('Cidade salva.');
+    applyRowChange(row, 'RETORNO', cleaned);
+
+    setRetornoModalOpen(false);
+    setActionsOpen(false);
   }
 
-  function callPhone(row: Row, which: 'TF1' | 'TF2') {
-    var tel = telToDial(row[which]);
-    if (!tel) {
-      showToast('Telefone vazio.');
-      return;
-    }
-    window.location.href = 'tel:' + tel;
+  function openOutraCidadePicker(row: Row) {
+    const current = outraCidadeFromObs(row.OBSERVACAO) || '';
+    setOutraCidadeInitial(current);
+    setOutraCidadeModalOpen(true);
   }
 
-  function copyToClipboard(label: string, value: string) {
-    var v = String(value || '').trim();
-    if (!v) {
-      showToast('Valor vazio.');
+  function confirmOutraCidade(payload: { tipo: OutraCidadeTipo; city: string }) {
+    const row = activeRow;
+    if (!row) {
+      setOutraCidadeModalOpen(false);
       return;
     }
 
-    var promise: Promise<any>;
+    const obs =
+      payload.tipo === 'NQ_RESPONDER'
+        ? buildOutraCidadeObs('NQ_RESPONDER')
+        : buildOutraCidadeObs('MORA_VOTA', payload.city);
+
+    applyRowChange(row, 'OUTRA_CIDADE', obs);
+
+    setOutraCidadeModalOpen(false);
+    setActionsOpen(false);
+  }
+
+  function callPhoneForRow(row: Row, which: 'TF1' | 'TF2') {
+    const tel = telToDial(row[which]);
+    if (!tel) return;
+    window.location.href = `tel:${tel}`;
+  }
+
+  async function copyToClipboard(label: string, value: string) {
+    const v = String(value || '').trim();
+    if (!v) return;
 
     try {
-      if ((navigator as any) && (navigator as any).clipboard && (navigator as any).clipboard.writeText) {
-        promise = (navigator as any).clipboard.writeText(v);
-      } else {
-        promise = fallbackCopyText(v);
-      }
-    } catch (e) {
-      promise = fallbackCopyText(v);
+      await navigator.clipboard.writeText(v);
+      setToast(`${label} copiado: ${v}`);
+      setTimeout(() => setToast(''), 3000);
+    } catch {
+      setToast('Não foi possível copiar.');
+      setTimeout(() => setToast(''), 3000);
     }
+  }
 
-    promise
-      .then(function () {
-        showToast(label + ' copiado.');
-      })
-      .catch(function () {
-        fallbackCopyText(v)
-          .then(function () {
-            showToast(label + ' copiado.');
-          })
-          .catch(function () {
-            showToast('Não foi possível copiar.');
-          });
+  useEffect(() => {
+    const entrega_id = getEntregaIdOnly();
+    if (!entrega_id) return;
+
+    const entries = Object.entries(dirty);
+    if (!entries.length) return;
+
+    const t = setTimeout(async () => {
+      const changes = entries.map(([lineStr, v]) => {
+        const status = v.STATUS;
+        const obsClean = obsToSave(status, v.OBSERVACAO || '');
+
+        return {
+          LINE: Number(lineStr),
+          STATUS: status,
+          OBSERVACAO: obsClean,
+          DT_ALTERACAO: v.DT_ALTERACAO,
+          UPDATED_AT_MS: v.UPDATED_AT_MS,
+          ts: new Date().toISOString(),
+        };
       });
-  }
 
-  function getFilteredRows() {
-    var out: Row[] = [];
+      try {
+        setSaving(true);
+        setSaveError('');
 
-    for (var i = 0; i < allRows.length; i++) {
-      var row = allRows[i];
+        const resp = await fetch(API_SAVE_PARTE, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({ entrega_id, changes }),
+        });
 
-      if (statusFilter === 'TODOS') {
-        out.push(row);
-      } else if (statusFilter === 'PENDENTES') {
-        if (row.STATUS === 'PENDENTE') out.push(row);
-      } else {
-        if (row.STATUS === statusFilter) out.push(row);
+        const txt = await resp.text().catch(() => '');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} • ${txt || 'Sem body'}`);
+
+        setDirty({});
+        setLastSavedAt(new Date().toLocaleTimeString());
+      } catch (e: any) {
+        setSaveError(String(e?.message || e));
+      } finally {
+        setSaving(false);
       }
-    }
+    }, 800);
 
-    return out;
-  }
+    return () => clearTimeout(t);
+  }, [saveTick, dirty]);
 
-  var filteredRows = getFilteredRows();
-  var totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
-  var currentPage = page > totalPages ? totalPages : page;
-  var start = (currentPage - 1) * PAGE_SIZE;
-  var pageRows = filteredRows.slice(start, start + PAGE_SIZE);
+  const pendentes = useMemo(() => filteredRows.filter((r) => r.STATUS === 'PENDENTE').length, [filteredRows]);
+  const tratados = useMemo(() => filteredRows.filter((r) => r.STATUS !== 'PENDENTE').length, [filteredRows]);
+  const hasData = allRows.length > 0;
 
-  var pendentes = countRowsByStatus(filteredRows, 'PENDENTE_ONLY');
-  var tratados = filteredRows.length - pendentes;
-  var dirtyCount = Object.keys(dirty).length;
+  const hintLink = useMemo(() => {
+    const base = `${window.location.origin}${window.location.pathname}#/?`;
+    return `${base}entregaId=SEU_ENTREGA_ID`;
+  }, []);
 
-  var hintLink = getLocationOriginSafe() + (window.location.pathname || '') + '#/?entregaId=SEU_ENTREGA_ID';
-
-  try {
+  function PaginationControls() {
     return (
-      <div style={styles.app}>
-        <style>{globalCss}</style>
-
-        <div style={styles.topCard}>
-          <div style={styles.title}>Atendimento Legacy</div>
-          <div style={styles.sub}>
-            Registros: <b>{filteredRows.length}</b> • Tratados: <b>{tratados}</b> • Pendentes: <b>{pendentes}</b>
-          </div>
-          <div style={styles.sub}>
-            Salvando: <b>{saving ? 'SIM' : 'NÃO'}</b>
-            {lastSavedAt ? (
-              <span>
-                {' '}
-                • Último: <b>{lastSavedAt}</b>
-              </span>
-            ) : null}
-          </div>
-          <div style={styles.sub}>
-            Pendentes de envio: <b>{dirtyCount}</b>
-          </div>
-
-          {saveError ? <div style={styles.errorBox}>❌ {saveError}</div> : null}
-
-          <div style={styles.filterWrap}>
-            <select
-              value={statusFilter}
-              onChange={function (e) {
-                setStatusFilter(e.target.value as StatusFilter);
-              }}
-              style={styles.select}
-            >
-              <option value="TODOS">Todos</option>
-              <option value="PENDENTES">Pendentes</option>
-              <option value="PESQUISA_FEITA">Pesquisa Feita</option>
-              <option value="NAO_ATENDEU">Não atendeu</option>
-              <option value="NUMERO_NAO_EXISTE">Nº não existe</option>
-              <option value="RECUSA">Recusa</option>
-              <option value="RETORNO">Retorno</option>
-              <option value="OUTRA_CIDADE">Outra cidade</option>
-              <option value="NAO_PODE_FAZER_PESQUISA">Não pode pesquisar</option>
-              <option value="REMOVER_DA_LISTA">Remover da lista</option>
-            </select>
-
-            <button
-              style={styles.secondaryBtn}
-              onClick={function () {
-                setStatusFilter('TODOS');
-              }}
-            >
-              Limpar filtro
-            </button>
-          </div>
-
-          <div style={styles.pagination}>
-            <button
-              style={styles.secondaryBtn}
-              disabled={currentPage <= 1}
-              onClick={function () {
-                setPage(currentPage - 1);
-              }}
-            >
-              Anterior
-            </button>
-
-            <div style={styles.pageInfo}>
-              Página {currentPage} / {totalPages}
-            </div>
-
-            <button
-              style={styles.primaryBtn}
-              disabled={currentPage >= totalPages}
-              onClick={function () {
-                setPage(currentPage + 1);
-              }}
-            >
-              Próxima
-            </button>
-          </div>
+      <div style={styles.nav}>
+        <div style={styles.pill}>
+          Página <b>{page}</b>/<b>{Math.max(1, totalPages)}</b>
         </div>
-
-        {loading ? (
-          <div style={styles.card}>
-            <div style={styles.loadingBox}>Carregando...</div>
-          </div>
-        ) : error ? (
-          <div style={styles.card}>
-            <div style={{ padding: 14 }}>
-              <div style={styles.errorTitle}>Erro</div>
-              <div style={styles.errorText}>{error}</div>
-              <div style={styles.hintBox}>{hintLink}</div>
-            </div>
-          </div>
-        ) : !allRows.length ? (
-          <div style={styles.card}>
-            <div style={styles.loadingBox}>Nenhum registro encontrado.</div>
-          </div>
-        ) : (
-          <div>
-            {pageRows.length ? (
-              pageRows.map(function (row) {
-                return (
-                  <RowCard
-                    key={row.id}
-                    row={row}
-                    expanded={expandedId === row.id}
-                    onToggle={function () {
-                      setExpandedId(expandedId === row.id ? '' : row.id);
-                    }}
-                    onApplyStatus={function (r, status) {
-                      applyStatus(r, status);
-                    }}
-                    onSetRetorno={function (r, value) {
-                      setRetorno(r, value);
-                    }}
-                    onSetOutraCidade={function (r, value) {
-                      setOutraCidade(r, value);
-                    }}
-                    onCall={function (r, which) {
-                      callPhone(r, which);
-                    }}
-                    onCopy={copyToClipboard}
-                  />
-                );
-              })
-            ) : (
-              <div style={styles.card}>
-                <div style={styles.loadingBox}>Nenhum registro nesta página.</div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {toast ? <div style={styles.toast}>{toast}</div> : null}
+        <button style={styles.btn} onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+          ⬅️
+        </button>
+        <button
+          style={{ ...styles.btn, ...styles.btnPrimary }}
+          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          disabled={page >= totalPages}
+        >
+          ➡️
+        </button>
       </div>
     );
-  } catch (e: any) {
-    return <AppErrorFallback text={String((e && (e.message || e.stack)) || e || 'Erro desconhecido')} />;
   }
+
+  return (
+    <div style={{ padding: 12 }}>
+      <style>{globalCss}</style>
+
+      <RowActionsModal
+        open={actionsOpen}
+        row={activeRow}
+        onClose={() => setActionsOpen(false)}
+        onToggleStatus={(next) => activeRow && toggleStatusForRow(activeRow, next)}
+        onCall={(which) => activeRow && callPhoneForRow(activeRow, which)}
+        onCopy={copyToClipboard}
+        onOpenRetorno={() => activeRow && openRetornoPicker(activeRow)}
+        onOpenOutraCidade={() => activeRow && openOutraCidadePicker(activeRow)}
+        onSetNaoPodeFazerPesquisa={() => activeRow && setNaoPodeFazerPesquisaForRow(activeRow)}
+      />
+
+      <RetornoModal open={retornoModalOpen} initialValue={retornoInitial} onCancel={() => setRetornoModalOpen(false)} onConfirm={confirmRetorno} />
+
+      <OutraCidadeModal
+        open={outraCidadeModalOpen}
+        initialValue={outraCidadeInitial}
+        onCancel={() => setOutraCidadeModalOpen(false)}
+        onConfirm={confirmOutraCidade}
+      />
+
+      {!hasData ? (
+        <div style={styles.card}>
+          <div style={{ padding: 14, color: 'var(--text)' }}>
+            <div style={{ fontWeight: 900, fontSize: 14 }}>{loading ? 'Carregando…' : 'Aguardando dados…'}</div>
+
+            <div style={{ color: 'var(--text-muted)', marginTop: 6, fontSize: 12 }}>
+              {loading ? 'Buscando o CSV no servidor (n8n → DB).' : 'Abra com entregaId para carregar. Exemplo:'}
+            </div>
+
+            {!loading && (
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: 10,
+                  border: '1px solid var(--border)',
+                  borderRadius: 10,
+                  fontSize: 12,
+                  color: 'var(--text-muted)',
+                  wordBreak: 'break-all',
+                  background: 'var(--surface)',
+                }}
+              >
+                {hintLink}
+              </div>
+            )}
+
+            {error ? (
+              <div style={{ marginTop: 10, padding: 10, border: '1px solid var(--danger)', borderRadius: 10 }}>
+                <div style={{ fontWeight: 900 }}>⚠️ Erro</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>{error}</div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <>
+          <div style={styles.topbarLocal}>
+            <div style={{ minWidth: 240 }}>
+              <div style={styles.h1}>Atendimento</div>
+
+              <div style={styles.sub}>
+                Registros: <b>{filteredRows.length}</b> • Tratados: <b>{tratados}</b> • Pendentes: <b>{pendentes}</b>
+              </div>
+
+              <div style={{ ...styles.sub, marginTop: 6 }}>
+                Salvando: <b style={{ color: saving ? 'var(--warning)' : 'var(--text-muted)' }}>{saving ? 'SIM' : 'NÃO'}</b>
+                {lastSavedAt && (
+                  <span style={{ marginLeft: 10 }}>
+                    Último: <b>{lastSavedAt}</b>
+                  </span>
+                )}
+              </div>
+
+              <div style={{ ...styles.sub, marginTop: 6 }}>
+                Alterações pendentes: <b style={{ color: dirtyCount ? 'var(--warning)' : 'var(--text-muted)' }}>{dirtyCount}</b>
+              </div>
+
+              {saveError && (
+                <div style={{ marginTop: 8, padding: 10, border: '1px solid var(--danger)', borderRadius: 10, fontSize: 12 }}>
+                  ❌ {saveError}
+                </div>
+              )}
+            </div>
+
+            <div style={styles.filtersRow}>
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} style={styles.select}>
+                <option value="TODOS">Status: Todos</option>
+                <option value="PENDENTES">Status: Pendentes</option>
+                <option value="PESQUISA_FEITA">Status: Pesquisa Feita</option>
+                <option value="NAO_ATENDEU">Status: Não atendeu/caixa postal</option>
+                <option value="NUMERO_NAO_EXISTE">Status: Nº Não Existe</option>
+                <option value="RECUSA">Status: Recusa</option>
+                <option value="RETORNO">Status: Retorno</option>
+                <option value="OUTRA_CIDADE">Status: Mora/Vota em outra cidade</option>
+                <option value="NAO_PODE_FAZER_PESQUISA">Status: Não pode fazer a pesquisa</option>
+                <option value="REMOVER_DA_LISTA">Status: Remover da lista</option>
+              </select>
+
+              {geoCols.estado ? (
+                <select value={estadoFilter} onChange={(e) => setEstadoFilter(e.target.value)} style={styles.select}>
+                  <option value="TODOS">Estado: Todos</option>
+                  {estadosDisponiveis.map((uf) => (
+                    <option key={uf} value={uf}>
+                      Estado: {uf}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+
+              {geoCols.cidade ? (
+                <select value={cidadeFilter} onChange={(e) => setCidadeFilter(e.target.value)} style={styles.select}>
+                  <option value="TODAS">Cidade: Todas</option>
+                  {cidadesDisponiveis.map((c) => (
+                    <option key={c} value={c}>
+                      Cidade: {c}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+
+              {geoCols.regiao ? (
+                <select value={regiaoFilter} onChange={(e) => setRegiaoFilter(e.target.value)} style={styles.select}>
+                  <option value="TODAS">Região: Todas</option>
+                  {regioesDisponiveis.map((rg) => (
+                    <option key={rg} value={rg}>
+                      Região: {rg}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+
+              <button
+                style={styles.btn}
+                onClick={() => {
+                  setStatusFilter('TODOS');
+                  setEstadoFilter('TODOS');
+                  setCidadeFilter('TODAS');
+                  setRegiaoFilter('TODAS');
+                }}
+              >
+                Limpar filtros
+              </button>
+            </div>
+
+            <PaginationControls />
+          </div>
+
+          <div style={styles.card}>
+            <div style={styles.cardHeader}>
+              <div>
+                <div style={styles.cardTitle}>Tabela (20 por página)</div>
+                <div style={styles.cardSub}>Clique na linha para abrir as ações em um modal.</div>
+              </div>
+            </div>
+
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>STATUS</th>
+                    <th style={styles.th}>IDP</th>
+
+                    {geoCols.estado ? <th style={styles.th}>ESTADO</th> : null}
+                    {geoCols.cidade ? <th style={styles.th}>CIDADE</th> : null}
+                    {geoCols.regiao ? <th style={styles.th}>REGIÃO</th> : null}
+
+                    <th style={styles.th}>TF1</th>
+                    <th style={styles.th}>TF2</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {pageRows.map((r) => {
+                    const baseBg = rowBg(r.STATUS);
+
+                    const isSelected = actionsOpen && activeRowId === r.id;
+                    const selectedBg =
+                      r.STATUS === 'OUTRA_CIDADE'
+                        ? 'rgba(249,115,22,.42)'
+                        : r.STATUS === 'NAO_PODE_FAZER_PESQUISA'
+                          ? 'rgba(15,118,110,.34)'
+                          : r.STATUS === 'RETORNO'
+                            ? 'rgba(30,58,138,.36)'
+                            : r.STATUS === 'PESQUISA_FEITA'
+                              ? 'rgba(22,163,74,.34)'
+                              : r.STATUS === 'NUMERO_NAO_EXISTE'
+                                ? 'rgba(239,68,68,.34)'
+                                : r.STATUS === 'RECUSA'
+                                  ? 'rgba(190,24,93,.28)'
+                                  : r.STATUS === 'NAO_ATENDEU' || r.STATUS === 'CAIXA_POSTAL'
+                                    ? 'rgba(245,158,11,.40)'
+                                    : r.STATUS === 'REMOVER_DA_LISTA'
+                                      ? 'rgba(124,58,237,.30)'
+                                      : 'rgba(0,0,0,.08)';
+
+                    return (
+                      <tr
+                        key={r.id}
+                        style={{
+                          ...styles.tr,
+                          background: isSelected ? selectedBg : baseBg,
+                          outline: isSelected ? '3px solid rgba(0,0,0,.14)' : '2px solid transparent',
+                        }}
+                        onClick={() => openRowActions(r)}
+                      >
+                        <td style={styles.td}>
+                          <StatusPill row={r} />
+                        </td>
+
+                        <td style={styles.td} title="Copiar IDP pelo botão no modal">
+                          {r.IDP}
+                        </td>
+
+                        {geoCols.estado ? <td style={styles.td}>{r.ESTADO || '—'}</td> : null}
+                        {geoCols.cidade ? <td style={styles.td}>{r.CIDADE || '—'}</td> : null}
+                        {geoCols.regiao ? <td style={styles.td}>{r.REGIAO_CIDADE || '—'}</td> : null}
+
+                        <td style={styles.td}>{r.TF1 || '—'}</td>
+                        <td style={styles.td}>{r.TF2 || '—'}</td>
+                      </tr>
+                    );
+                  })}
+
+                  {pageRows.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={2 + (geoCols.estado ? 1 : 0) + (geoCols.cidade ? 1 : 0) + (geoCols.regiao ? 1 : 0) + 2}
+                        style={{ padding: 14, color: 'var(--text-muted)', fontSize: 13, background: 'var(--surface)' }}
+                      >
+                        Nenhum registro encontrado com esses filtros.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={styles.footerHint}>✅ Clique na linha para abrir o modal de ações.</div>
+
+            <div style={{ padding: 10, borderTop: '1px solid var(--border)', background: 'var(--surfaceMuted)' }}>
+              <PaginationControls />
+            </div>
+          </div>
+        </>
+      )}
+
+      {toast ? <div style={styles.snackbar}>{toast}</div> : null}
+    </div>
+  );
 }
 
+// =========================
+// APP ROOT
+// =========================
+export function App() {
+  return (
+    <HashRouter>
+      <Routes>
+        <Route path="/" element={<MiniAppTabela />} />
+        <Route path="*" element={<Navigate to="/" />} />
+      </Routes>
+    </HashRouter>
+  );
+}
+
+// =========================
+// STYLES
+// =========================
 const styles: Record<string, React.CSSProperties> = {
-  app: {
+  topbarLocal: {
+    background: 'var(--surfaceMuted)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)',
+    boxShadow: 'var(--shadow)',
     padding: 10,
-  },
-  topCard: {
-    background: COLORS.card,
-    border: '1px solid ' + COLORS.border,
-    borderRadius: 12,
-    padding: 12,
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+    flexWrap: 'wrap',
     marginBottom: 10,
   },
-  card: {
-    background: COLORS.card,
-    border: '1px solid ' + COLORS.border,
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 10,
+  h1: { fontWeight: 900, fontSize: 15, color: 'var(--text)' },
+  sub: { fontSize: 13, color: 'var(--text-muted)', marginTop: 4 },
+
+  filtersRow: {
+    display: 'flex',
+    gap: 8,
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    maxWidth: 900,
   },
-  title: {
-    fontSize: 18,
-    fontWeight: 700,
-    color: COLORS.text,
-  },
-  sub: {
-    fontSize: 13,
-    color: COLORS.muted,
-    marginTop: 6,
-  },
-  filterWrap: {
-    marginTop: 10,
-  },
+
   select: {
-    width: '100%',
-    height: 42,
-    border: '1px solid ' + COLORS.border,
+    border: '1px solid var(--border)',
+    background: 'var(--surface)',
+    color: 'var(--text)',
+    padding: '10px 12px',
     borderRadius: 10,
-    background: '#fff',
-    padding: '0 10px',
-    marginBottom: 8,
-  },
-  pagination: {
-    marginTop: 10,
-  },
-  pageInfo: {
     fontSize: 13,
-    color: COLORS.muted,
-    marginBottom: 8,
+    outline: 'none',
   },
-  rowCard: {
-    background: COLORS.card,
-    border: '1px solid ' + COLORS.border,
-    borderLeftWidth: 5,
-    borderRadius: 12,
-    marginBottom: 10,
-    overflow: 'hidden',
-  },
-  rowHeaderBtn: {
-    display: 'block',
-    width: '100%',
-    border: 'none',
-    background: '#fff',
-    textAlign: 'left',
-    padding: 12,
-    cursor: 'pointer',
-  },
-  rowHeaderTop: {
-    marginBottom: 8,
-  },
-  rowHeaderBottom: {
-    marginTop: 6,
-  },
-  rowId: {
-    fontSize: 15,
-    fontWeight: 700,
-    color: COLORS.text,
-    marginBottom: 8,
-  },
-  rowLine: {
-    fontSize: 12,
-    color: COLORS.muted,
-  },
-  rowPhones: {
-    fontSize: 12,
-    color: COLORS.muted,
-    marginTop: 4,
-    wordBreak: 'break-word',
-  },
-  rowGeo: {
-    fontSize: 12,
-    color: COLORS.muted,
-    marginTop: 6,
-    wordBreak: 'break-word',
-  },
-  statusBadge: {
-    display: 'inline-block',
-    padding: '5px 8px',
+
+  nav: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
+  pill: {
+    border: '1px solid var(--border)',
+    background: 'var(--surface)',
+    color: 'var(--text)',
+    padding: '8px 10px',
     borderRadius: 999,
-    border: '1px solid ' + COLORS.border,
-    fontSize: 11,
-    fontWeight: 700,
-    color: COLORS.text,
-    background: COLORS.card2,
-  },
-  rowBody: {
-    borderTop: '1px solid ' + COLORS.border,
-    background: COLORS.card2,
-    padding: 12,
-  },
-  sectionTitle: {
     fontSize: 13,
-    fontWeight: 700,
-    color: COLORS.text,
-    marginBottom: 8,
-    marginTop: 10,
+    display: 'flex',
+    gap: 6,
+    alignItems: 'center',
+    whiteSpace: 'nowrap',
   },
-  btnGrid: {
-    marginBottom: 6,
-  },
-  actionBtn: {
-    display: 'inline-block',
-    width: '100%',
-    minHeight: 42,
-    border: '1px solid ' + COLORS.border,
+
+  btn: {
+    border: '1px solid var(--border)',
+    background: 'var(--secondary)',
+    color: 'var(--secondary-text)',
+    padding: '10px 12px',
     borderRadius: 10,
-    background: '#fff',
-    color: COLORS.text,
-    fontWeight: 700,
-    marginBottom: 8,
-    cursor: 'pointer',
-    padding: '0 10px',
-  },
-  primaryBtn: {
-    display: 'inline-block',
-    width: '100%',
-    minHeight: 42,
-    border: '1px solid ' + COLORS.primary,
-    borderRadius: 10,
-    background: COLORS.primary,
-    color: COLORS.primaryText,
-    fontWeight: 700,
-    marginBottom: 8,
-    cursor: 'pointer',
-    padding: '0 10px',
-  },
-  secondaryBtn: {
-    display: 'inline-block',
-    width: '100%',
-    minHeight: 42,
-    border: '1px solid ' + COLORS.border,
-    borderRadius: 10,
-    background: '#fff',
-    color: COLORS.text,
-    fontWeight: 700,
-    marginBottom: 8,
-    cursor: 'pointer',
-    padding: '0 10px',
-  },
-  inlineRow: {
-    marginBottom: 8,
-  },
-  input: {
-    width: '100%',
-    height: 42,
-    border: '1px solid ' + COLORS.border,
-    borderRadius: 10,
-    padding: '0 10px',
-    background: '#fff',
-    color: COLORS.text,
-    marginBottom: 8,
-  },
-  lastInfo: {
-    fontSize: 12,
-    color: COLORS.muted,
-    marginTop: 8,
-  },
-  loadingBox: {
-    padding: 16,
-    fontSize: 14,
-    color: COLORS.text,
-  },
-  errorBox: {
-    marginTop: 8,
-    padding: 10,
-    border: '1px solid ' + COLORS.danger,
-    borderRadius: 10,
-    background: '#fff',
-    color: COLORS.text,
-    fontSize: 12,
-  },
-  errorTitle: {
-    fontSize: 15,
-    fontWeight: 700,
-    color: COLORS.text,
-  },
-  errorText: {
+    fontWeight: 900,
     fontSize: 13,
-    color: COLORS.text,
-    marginTop: 8,
-    wordBreak: 'break-word',
-    whiteSpace: 'pre-wrap',
+    cursor: 'pointer',
   },
-  hintBox: {
-    marginTop: 10,
+  btnPrimary: {
+    background: 'var(--primary)',
+    color: 'var(--primary-text)',
+    borderColor: 'var(--border)',
+  },
+
+  card: {
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)',
+    overflow: 'hidden',
+    boxShadow: 'var(--shadow)',
+  },
+  cardHeader: {
     padding: 10,
-    border: '1px solid ' + COLORS.border,
+    borderBottom: '1px solid var(--border)',
+    background: 'var(--surfaceMuted)',
+  },
+  cardTitle: { fontWeight: 900, fontSize: 14, color: 'var(--text)' },
+  cardSub: { fontSize: 13, color: 'var(--text-muted)', marginTop: 4 },
+
+  tableWrap: { overflow: 'auto', background: 'var(--surface)' },
+  table: { width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 860 },
+  th: {
+    position: 'sticky',
+    top: 0,
+    background: 'var(--surfaceMuted)',
+    borderBottom: '1px solid var(--border)',
+    padding: '10px 12px',
+    fontSize: 13,
+    textAlign: 'left',
+    color: 'var(--text-muted)',
+    whiteSpace: 'nowrap',
+  },
+  tr: { cursor: 'pointer' },
+  td: {
+    borderBottom: '1px solid var(--border)',
+    padding: '11px 12px',
+    fontSize: 13,
+    color: 'var(--text)',
+    whiteSpace: 'nowrap',
+    userSelect: 'text',
+    background: 'transparent',
+  },
+
+  footerHint: {
+    padding: 10,
+    color: 'var(--text-muted)',
+    fontSize: 13,
+    background: 'var(--surface)',
+  },
+
+  btnAction: {
+    padding: '10px 12px',
     borderRadius: 10,
     fontSize: 12,
-    color: COLORS.muted,
-    wordBreak: 'break-all',
-    background: '#fff',
+    fontWeight: 900,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
   },
-  toast: {
+  btnActive: {
+    outline: '3px solid rgba(0,0,0,.12)',
+  },
+
+  snackbar: {
     position: 'fixed',
     left: '50%',
-    bottom: 10,
+    bottom: 14,
     transform: 'translateX(-50%)',
     background: 'rgba(0,0,0,.88)',
     color: '#fff',
     padding: '10px 12px',
     borderRadius: 999,
     fontSize: 13,
-    fontWeight: 700,
+    fontWeight: 900,
     maxWidth: '92vw',
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
+    zIndex: 10000,
+    boxShadow: '0 12px 30px rgba(0,0,0,.25)',
+  },
+};
+
+const stylesModal: Record<string, React.CSSProperties> = {
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,.35)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
     zIndex: 9999,
   },
+  box: {
+    width: 'min(420px, 96vw)',
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 14,
+    boxShadow: 'var(--shadow)',
+    overflow: 'hidden',
+  },
+  header: {
+    padding: 12,
+    background: 'var(--surfaceMuted)',
+    borderBottom: '1px solid var(--border)',
+  },
+  title: { fontWeight: 900, fontSize: 14, color: 'var(--text)' },
+  sub: { fontSize: 12, color: 'var(--text-muted)', marginTop: 4 },
+  input: {
+    width: '100%',
+    padding: '12px 12px',
+    borderRadius: 12,
+    border: '1px solid var(--border)',
+    background: 'var(--surface-2)',
+    color: 'var(--text)',
+    fontSize: 16,
+    fontWeight: 900,
+    outline: 'none',
+  },
+  textInput: {
+    width: '100%',
+    padding: '12px 12px',
+    borderRadius: 12,
+    border: '1px solid var(--border)',
+    background: 'var(--surface-2)',
+    color: 'var(--text)',
+    fontSize: 14,
+    fontWeight: 800,
+    outline: 'none',
+  },
+  rowBtns: { display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 },
 };
